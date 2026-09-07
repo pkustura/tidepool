@@ -215,6 +215,11 @@
   .dot{ width:9px; height:9px; border-radius:50%; display:inline-block; }
   .mrow{ display:flex; align-items:center; gap: 4px; }
   .mrow + .mrow{ margin-top: 3px; }
+  .bandlabel{
+    font-size: 9.5px; letter-spacing:0.08em; text-transform:uppercase;
+    color: var(--ink-dim); margin: 8px 0 5px;
+  }
+  .bandlabel:first-of-type{ margin-top: 0; }
   .legend{
     display:flex; gap: 12px; margin-top: 9px; padding-top: 8px;
     border-top: 1px dashed var(--line); font-size: 10px; color: var(--ink-dim);
@@ -255,8 +260,8 @@
     </div>
 
     <label class="slider">
-      <span class="label">Population <b id="popVal">650</b></span>
-      <input type="range" id="popRange" min="100" max="1400" step="50" value="650">
+      <span class="label">Population <b id="popVal">1200</b></span>
+      <input type="range" id="popRange" min="200" max="2500" step="100" value="1200">
     </label>
 
     <label class="slider">
@@ -275,9 +280,12 @@
     <div class="stat"><span>Population</span><b id="popStat">0</b></div>
   </div>
 
-  <aside class="matrix" aria-label="Species affinity matrix">
+  <aside class="matrix" aria-label="Species affinity matrices">
     <h2>Affinities</h2>
-    <div id="matrixGrid"></div>
+    <div class="bandlabel">Near</div>
+    <div id="matrixNear"></div>
+    <div class="bandlabel">Far</div>
+    <div id="matrixFar"></div>
     <div class="legend">
       <span><i class="swatch" style="background:var(--attract)"></i>attracts</span>
       <span><i class="swatch" style="background:var(--repel)"></i>repels</span>
@@ -312,7 +320,7 @@
     { name:'rose',    hex:'#EE7F7F' }
   ];
 
-  var COLLISION_R = 13;
+  var COLLISION_R = 8;
   var STIR_RADIUS = 150;
   var STIR_STRENGTH = 0.9;
   var WALL_MARGIN = 28;
@@ -321,7 +329,7 @@
 
   var state = {
     speciesCount: 5,
-    population: 650,
+    population: 1200,
     momentum: 0.90,
     reach: 65,
     paused: false,
@@ -330,18 +338,23 @@
   };
 
   var px, py, vx, vy, sp, N;
-  var rules; // Float32Array speciesCount*speciesCount
+  var ruleNear, ruleFar; // Float32Array speciesCount*speciesCount, each
 
   function rnd(a,b){ return a + Math.random()*(b-a); }
 
-  function makeRules(count){
+  function makeRuleSet(count, selfRange){
     var m = new Float32Array(count*count);
     for (var i=0;i<count;i++){
       for (var j=0;j<count;j++){
-        m[i*count+j] = i===j ? rnd(-0.3, 0.6) : rnd(-1, 1);
+        m[i*count+j] = i===j ? rnd(selfRange[0], selfRange[1]) : rnd(-1, 1);
       }
     }
     return m;
+  }
+
+  function makeRules(count){
+    ruleNear = makeRuleSet(count, [-0.3, 0.6]);
+    ruleFar = makeRuleSet(count, [-0.4, 0.4]);
   }
 
   function seedParticles(n){
@@ -360,7 +373,7 @@
   function newColony(){
     state.specimenNo++;
     document.getElementById('specimenNo').textContent = String(state.specimenNo).padStart(4,'0');
-    rules = makeRules(state.speciesCount);
+    makeRules(state.speciesCount);
     seedParticles(state.population);
     state.generation = 0;
     renderMatrix();
@@ -417,6 +430,7 @@
     var reach = state.reach;
     var reach2 = reach*reach;
     var col = COLLISION_R;
+    var mid = col + (reach-col)*0.5;
     var mom = state.momentum;
     var count = state.speciesCount;
 
@@ -452,11 +466,16 @@
                 if (d < col){
                   var rep = (d/col - 1);
                   fij = rep; fji = rep;
-                } else {
-                  var t = (d - col) / (reach - col);
+                } else if (d < mid){
+                  var t = (d - col) / (mid - col);
                   var tri = 1 - Math.abs(2*t - 1);
-                  fij = rules[sp[i]*count+sp[j]] * tri;
-                  fji = rules[sp[j]*count+sp[i]] * tri;
+                  fij = ruleNear[sp[i]*count+sp[j]] * tri;
+                  fji = ruleNear[sp[j]*count+sp[i]] * tri;
+                } else {
+                  var t2 = (d - mid) / (reach - mid);
+                  var tri2 = 1 - Math.abs(2*t2 - 1);
+                  fij = ruleFar[sp[i]*count+sp[j]] * tri2;
+                  fji = ruleFar[sp[j]*count+sp[i]] * tri2;
                 }
                 fx[i] += ux*fij; fy[i] += uy*fij;
                 fx[j] -= ux*fji; fy[j] -= uy*fji;
@@ -517,7 +536,7 @@
       var c = PALETTE[sp[i] % PALETTE.length].hex;
       ctx.beginPath();
       ctx.fillStyle = c;
-      ctx.arc(px[i], py[i], 2.4, 0, Math.PI*2);
+      ctx.arc(px[i], py[i], 1.6, 0, Math.PI*2);
       ctx.fill();
     }
 
@@ -546,12 +565,10 @@
     requestAnimationFrame(loop);
   }
 
-  function renderMatrix(){
-    var count = state.speciesCount;
-    var grid = document.getElementById('matrixGrid');
-    grid.innerHTML = '';
-    grid.style.gridTemplateColumns = '9px repeat(' + count + ', 16px)';
-    grid.className = 'grid';
+  function renderRuleGrid(container, ruleArr, count, bandName){
+    container.innerHTML = '';
+    container.style.gridTemplateColumns = '9px repeat(' + count + ', 16px)';
+    container.className = 'grid';
 
     var headRow = document.createElement('div');
     headRow.style.display = 'contents';
@@ -565,7 +582,7 @@
       hd.appendChild(dot);
       headRow.appendChild(hd);
     }
-    grid.appendChild(headRow);
+    container.appendChild(headRow);
 
     for (var r=0;r<count;r++){
       var rowWrap = document.createElement('div');
@@ -575,17 +592,23 @@
       rlabel.style.alignSelf = 'center';
       rowWrap.appendChild(rlabel);
       for (var c2=0;c2<count;c2++){
-        var val = rules[r*count+c2];
+        var val = ruleArr[r*count+c2];
         var cell = document.createElement('div');
         cell.className = 'cell';
         var mag = Math.min(1, Math.abs(val));
         var base = val >= 0 ? 'var(--attract)' : 'var(--repel)';
         cell.style.background = 'color-mix(in srgb, ' + base + ' ' + Math.round(mag*85+8) + '%, var(--surface-2))';
-        cell.title = PALETTE[r].name + ' ← ' + PALETTE[c2].name + ': ' + (val>=0?'+':'') + val.toFixed(2);
+        cell.title = bandName + ': ' + PALETTE[r].name + ' ← ' + PALETTE[c2].name + ': ' + (val>=0?'+':'') + val.toFixed(2);
         rowWrap.appendChild(cell);
       }
-      grid.appendChild(rowWrap);
+      container.appendChild(rowWrap);
     }
+  }
+
+  function renderMatrix(){
+    var count = state.speciesCount;
+    renderRuleGrid(document.getElementById('matrixNear'), ruleNear, count, 'Near');
+    renderRuleGrid(document.getElementById('matrixFar'), ruleFar, count, 'Far');
   }
 
   // --- controls wiring ---
