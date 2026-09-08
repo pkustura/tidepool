@@ -113,76 +113,42 @@
     padding-top: 7px;
   }
 
-  .panel{
-    position: absolute; top: 20px; right: 20px;
-    width: 236px;
-    max-width: calc(100vw - 40px);
-    background: color-mix(in srgb, var(--surface) 88%, transparent);
-    backdrop-filter: blur(6px);
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    box-shadow: 0 6px 18px var(--shadow);
-    padding: 14px 14px 15px;
+  .control-column{
+    position: absolute; top: 20px; right: 20px; bottom: 20px;
+    width: 260px; max-width: calc(100vw - 40px);
     display: flex; flex-direction: column; gap: 12px;
+    overflow-y: auto; overflow-x: hidden;
+    scrollbar-width: thin; scrollbar-color: var(--accent) transparent;
   }
-  .panel h2{
-    margin:0; font-size: 10.5px; font-weight: 600;
-    letter-spacing: 0.11em; text-transform: uppercase;
-    color: var(--ink-dim); font-family: 'IBM Plex Mono', monospace;
-  }
-  .row{ display:flex; gap:8px; }
-  button{
-    flex: 1;
+  .control-column::-webkit-scrollbar{ width: 6px; }
+  .control-column::-webkit-scrollbar-track{ background: transparent; }
+  .control-column::-webkit-scrollbar-thumb{ background: var(--accent); border-radius: 3px; }
+
+  #controls{
+    --tp-base-background-color: color-mix(in srgb, var(--surface) 92%, transparent);
+    --tp-base-shadow-color: var(--shadow);
+    --tp-base-border-radius: 10px;
+    --tp-button-background-color: var(--surface-2);
+    --tp-button-background-color-active: var(--accent);
+    --tp-button-background-color-focus: var(--surface-2);
+    --tp-button-background-color-hover: color-mix(in srgb, var(--accent) 25%, var(--surface-2));
+    --tp-button-foreground-color: var(--ink);
+    --tp-container-background-color: color-mix(in srgb, var(--surface) 92%, transparent);
+    --tp-container-background-color-active: var(--surface-2);
+    --tp-container-background-color-focus: var(--surface-2);
+    --tp-container-background-color-hover: var(--surface-2);
+    --tp-container-foreground-color: var(--ink);
+    --tp-groove-foreground-color: var(--line);
+    --tp-input-background-color: var(--surface-2);
+    --tp-input-background-color-active: color-mix(in srgb, var(--accent) 30%, var(--surface-2));
+    --tp-input-background-color-focus: color-mix(in srgb, var(--accent) 20%, var(--surface-2));
+    --tp-input-background-color-hover: color-mix(in srgb, var(--accent) 15%, var(--surface-2));
+    --tp-input-foreground-color: var(--accent);
+    --tp-label-foreground-color: var(--ink-dim);
+    --tp-monitor-background-color: var(--surface-2);
+    --tp-monitor-foreground-color: var(--ink);
     font-family: 'IBM Plex Sans', sans-serif;
-    font-weight: 500;
-    font-size: 12.5px;
-    padding: 8px 6px;
-    border-radius: 6px;
-    border: 1px solid var(--line);
-    background: var(--surface-2);
-    color: var(--ink);
-    cursor: pointer;
   }
-  button:hover{ border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); }
-  button:focus-visible, input:focus-visible, .step button:focus-visible{
-    outline: 2px solid var(--accent); outline-offset: 2px;
-  }
-  button.primary{
-    background: var(--accent); color: var(--accent-ink); border-color: transparent;
-  }
-  button.primary:hover{ filter: brightness(1.06); }
-  button.toggle[aria-pressed="true"]{
-    background: var(--surface-2);
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 70%, var(--line));
-  }
-
-  .slider{ display:flex; flex-direction:column; gap:4px; }
-  .slider .label{
-    display:flex; justify-content: space-between; align-items:baseline;
-    font-size: 11.5px; color: var(--ink-dim);
-  }
-  .slider .label b{
-    font-family: 'IBM Plex Mono', monospace; font-weight: 500;
-    font-variant-numeric: tabular-nums; color: var(--ink);
-  }
-  input[type="range"]{
-    -webkit-appearance:none; appearance:none;
-    width:100%; height: 3px; border-radius: 2px;
-    background: var(--line); outline: none; margin: 3px 0;
-  }
-  input[type="range"]::-webkit-slider-thumb{
-    -webkit-appearance:none; width:14px; height:14px; border-radius:50%;
-    background: var(--accent); border: 2px solid var(--surface);
-    box-shadow: 0 0 0 1px var(--line); cursor:pointer;
-  }
-  input[type="range"]::-moz-range-thumb{
-    width:12px; height:12px; border-radius:50%;
-    background: var(--accent); border: 2px solid var(--surface); cursor:pointer;
-  }
-
-  .step{ display:flex; align-items:center; justify-content: space-between; }
-  .step .stepbtns{ display:flex; gap:6px; }
-  .step button{ flex:none; width: 26px; height: 26px; padding:0; font-family:'IBM Plex Mono',monospace; }
 
   .readout{
     position: absolute; bottom: 20px; left: 20px;
@@ -202,7 +168,7 @@
   }
 
   .matrix{
-    position:absolute; bottom: 20px; right: 20px;
+    flex: none;
     background: color-mix(in srgb, var(--surface) 88%, transparent);
     backdrop-filter: blur(6px);
     border: 1px solid var(--line);
@@ -218,7 +184,6 @@
   .grid{ display:grid; gap: 3px; }
   .cell{ width: 16px; height: 16px; border-radius: 2px; }
   .dot{ width:9px; height:9px; border-radius:50%; display:inline-block; }
-  .mass-row .dot{ margin-right:6px; vertical-align:-1px; }
   .mrow{ display:flex; align-items:center; gap: 4px; }
   .mrow + .mrow{ margin-top: 3px; }
   .bandlabel{
@@ -226,7 +191,6 @@
     color: var(--ink-dim); margin: 8px 0 5px;
   }
   .bandlabel:first-of-type{ margin-top: 0; }
-  #massPanel{ display:flex; flex-direction:column; gap:10px; }
   .legend{
     display:flex; gap: 12px; margin-top: 9px; padding-top: 8px;
     border-top: 1px dashed var(--line); font-size: 10px; color: var(--ink-dim);
@@ -236,7 +200,7 @@
 
   @media (max-width: 620px){
     .tag{ max-width: calc(100vw - 40px); }
-    .panel{ top: auto; bottom: 20px; right: 20px; left: 20px; width:auto; }
+    .control-column{ top: auto; bottom: 20px; right: 20px; left: 20px; width:auto; }
     .readout, .matrix{ display:none; }
   }
 </style>
@@ -252,78 +216,30 @@
     <div class="field">Specimen no. <span id="specimenNo">0001</span></div>
   </header>
 
-  <section class="panel" aria-label="Controls">
-    <h2>Instrument</h2>
-    <div class="row">
-      <button class="primary" id="btnNew">New colony</button>
-      <button id="btnScatter">Scatter</button>
-    </div>
-    <button class="toggle" id="btnPause" aria-pressed="false">Pause</button>
+  <div class="control-column">
+    <div id="controls" aria-label="Controls"></div>
 
-    <div class="step">
-      <span class="slider label" style="flex:1">Regime <b id="regimeVal">Bonded</b></span>
-      <div class="stepbtns">
-        <button id="regimeDown" aria-label="Previous regime">‹</button>
-        <button id="regimeUp" aria-label="Next regime">›</button>
+    <aside class="matrix" aria-label="Group affinity matrices">
+      <h2>Affinities</h2>
+      <div class="bandlabel">Near</div>
+      <div id="matrixNear"></div>
+      <div class="bandlabel">Far</div>
+      <div id="matrixFar"></div>
+      <div class="legend">
+        <span><i class="swatch" style="background:var(--attract)"></i>attracts</span>
+        <span><i class="swatch" style="background:var(--repel)"></i>repels</span>
       </div>
-    </div>
-
-    <div class="step">
-      <span class="slider label" style="flex:1">Group <b id="groupVal">5</b></span>
-      <div class="stepbtns">
-        <button id="groupDown" aria-label="Fewer groups">−</button>
-        <button id="groupUp" aria-label="More groups">+</button>
-      </div>
-    </div>
-
-    <label class="slider">
-      <span class="label">Population <b id="popVal">1200</b></span>
-      <input type="range" id="popRange" min="200" max="2500" step="100" value="1200">
-    </label>
-
-    <label class="slider">
-      <span class="label">Momentum <b id="momVal">0.75</b></span>
-      <input type="range" id="momRange" min="50" max="99" step="1" value="75">
-    </label>
-
-    <label class="slider">
-      <span class="label">Reach <b id="reachVal">35</b>px</span>
-      <input type="range" id="reachRange" min="15" max="150" step="5" value="35">
-    </label>
-
-    <label class="slider">
-      <span class="label">Space <b id="spaceVal">1600</b>px</span>
-      <input type="range" id="spaceRange" min="600" max="6000" step="200" value="1600">
-    </label>
-
-    <label class="slider">
-      <span class="label">Speed <b id="speedVal">1.0×</b></span>
-      <input type="range" id="speedRange" min="1" max="40" step="1" value="10">
-    </label>
-
-    <div class="bandlabel">Physiology</div>
-    <div id="massPanel"></div>
-  </section>
+    </aside>
+  </div>
 
   <div class="readout">
     <div class="stat"><span>Generation</span><b id="genStat">0</b></div>
     <div class="stat"><span>Population</span><b id="popStat">0</b></div>
   </div>
-
-  <aside class="matrix" aria-label="Group affinity matrices">
-    <h2>Affinities</h2>
-    <div class="bandlabel">Near</div>
-    <div id="matrixNear"></div>
-    <div class="bandlabel">Far</div>
-    <div id="matrixFar"></div>
-    <div class="legend">
-      <span><i class="swatch" style="background:var(--attract)"></i>attracts</span>
-      <span><i class="swatch" style="background:var(--repel)"></i>repels</span>
-    </div>
-  </aside>
 </div>
 
-<script>
+<script type="module">
+import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpane.min.js';
 (function(){
   "use strict";
 
@@ -470,6 +386,27 @@
     for (var i=0;i<count;i++) groupMass[i] = rnd(MASS_MIN, MASS_MAX);
   }
 
+  // Relative population share per group — weights, not fractions (like
+  // parts in a recipe), so a 2:1 weight ratio holds regardless of how many
+  // groups exist. This is what lets a minority group end up consistently
+  // flanked by a majority partner, i.e. fixed-stoichiometry structure.
+  var WEIGHT_MIN = 0.3, WEIGHT_MAX = 3;
+  var groupWeight;
+  function initWeights(count){
+    groupWeight = new Float32Array(count);
+    for (var i=0;i<count;i++) groupWeight[i] = rnd(WEIGHT_MIN, WEIGHT_MAX);
+  }
+  function sampleGroup(){
+    var total = 0;
+    for (var i=0;i<groupWeight.length;i++) total += groupWeight[i];
+    var r = Math.random()*total;
+    for (var i2=0;i2<groupWeight.length;i2++){
+      r -= groupWeight[i2];
+      if (r <= 0) return i2;
+    }
+    return groupWeight.length-1;
+  }
+
   function seedParticles(n){
     N = n;
     px = new Float32Array(n); py = new Float32Array(n);
@@ -479,7 +416,7 @@
       px[i] = rnd(WORLD_W*0.1, WORLD_W*0.9);
       py[i] = rnd(WORLD_H*0.1, WORLD_H*0.9);
       vx[i] = 0; vy[i] = 0;
-      sp[i] = Math.floor(Math.random()*state.groupCount);
+      sp[i] = sampleGroup();
     }
   }
 
@@ -488,10 +425,11 @@
     document.getElementById('specimenNo').textContent = String(state.specimenNo).padStart(4,'0');
     makeRules(state.groupCount);
     initMass(state.groupCount);
+    initWeights(state.groupCount);
     seedParticles(state.population);
     state.generation = 0;
     renderMatrix();
-    renderMassPanel();
+    refreshPhysiologyUI();
   }
 
   function scatter(){
@@ -794,119 +732,55 @@
     renderRuleGrid(document.getElementById('matrixFar'), ruleFar, count, 'Far');
   }
 
-  function renderMassPanel(){
-    var count = state.groupCount;
-    var container = document.getElementById('massPanel');
-    container.innerHTML = '';
-    for (var i=0;i<count;i++){
+  // --- controls wiring (Tweakpane) ---
+  var pane = new Pane({ title: 'Instrument', container: document.getElementById('controls') });
+
+  pane.addButton({ title: 'New colony' }).on('click', newColony);
+  pane.addButton({ title: 'Scatter' }).on('click', scatter);
+
+  var btnPause = pane.addButton({ title: 'Pause' });
+  btnPause.on('click', function(){
+    state.paused = !state.paused;
+    btnPause.title = state.paused ? 'Resume' : 'Pause';
+  });
+
+  var regimeOptions = {};
+  RULE_MODE_KEYS.forEach(function(k){ regimeOptions[RULE_MODES[k].label] = k; });
+  pane.addBinding(state, 'ruleMode', { label: 'Regime', options: regimeOptions }).on('change', newColony);
+
+  pane.addBinding(state, 'groupCount', { label: 'Group', min: 2, max: 6, step: 1 }).on('change', newColony);
+
+  var dynFolder = pane.addFolder({ title: 'Dynamics', expanded: true });
+  dynFolder.addBinding(state, 'population', { label: 'Population', min: 200, max: 50000, step: 100 })
+    .on('change', function(){ seedParticles(state.population); });
+  dynFolder.addBinding(state, 'momentum', { label: 'Momentum', min: 0.5, max: 0.99, step: 0.01 });
+  dynFolder.addBinding(state, 'reach', { label: 'Reach', min: 15, max: 150, step: 5 })
+    .on('change', buildGrid);
+  dynFolder.addBinding(state, 'spaceSize', { label: 'Space', min: 600, max: 6000, step: 200 })
+    .on('change', function(){
+      WORLD_W = state.spaceSize;
+      WORLD_H = state.spaceSize;
+      buildGrid();
+      fitCamera();
+    });
+  dynFolder.addBinding(state, 'timeScale', { label: 'Speed', min: 0.1, max: 4, step: 0.1 });
+
+  var physioFolder = pane.addFolder({ title: 'Physiology', expanded: true });
+  function refreshPhysiologyUI(){
+    physioFolder.children.slice().forEach(function(c){ c.dispose(); });
+    var massFolder = physioFolder.addFolder({ title: 'Mass', expanded: true });
+    var ratioFolder = physioFolder.addFolder({ title: 'Ratio', expanded: false });
+    for (var i=0;i<state.groupCount;i++){
       (function(i){
-        var row = document.createElement('label');
-        row.className = 'slider mass-row';
-
-        var labelSpan = document.createElement('span');
-        labelSpan.className = 'label';
-
-        var left = document.createElement('span');
-        var dot = document.createElement('i');
-        dot.className = 'dot';
-        dot.style.background = PALETTE[i].hex;
-        left.appendChild(dot);
-        left.appendChild(document.createTextNode('Mass'));
-
-        var valB = document.createElement('b');
-        valB.textContent = groupMass[i].toFixed(2);
-
-        labelSpan.appendChild(left);
-        labelSpan.appendChild(valB);
-
-        var input = document.createElement('input');
-        input.type = 'range';
-        input.min = Math.round(MASS_MIN*100);
-        input.max = Math.round(MASS_MAX*100);
-        input.step = 5;
-        input.value = Math.round(groupMass[i]*100);
-        input.addEventListener('input', function(){
-          groupMass[i] = parseInt(input.value,10)/100;
-          valB.textContent = groupMass[i].toFixed(2);
-        });
-
-        row.appendChild(labelSpan);
-        row.appendChild(input);
-        container.appendChild(row);
+        var mProxy = { v: groupMass[i] };
+        massFolder.addBinding(mProxy, 'v', { label: PALETTE[i].name, min: MASS_MIN, max: MASS_MAX, step: 0.05 })
+          .on('change', function(ev){ groupMass[i] = ev.value; });
+        var rProxy = { v: groupWeight[i] };
+        ratioFolder.addBinding(rProxy, 'v', { label: PALETTE[i].name, min: WEIGHT_MIN, max: WEIGHT_MAX, step: 0.05 })
+          .on('change', function(ev){ groupWeight[i] = ev.value; seedParticles(state.population); });
       })(i);
     }
   }
-
-  // --- controls wiring ---
-  document.getElementById('btnNew').addEventListener('click', newColony);
-  document.getElementById('btnScatter').addEventListener('click', scatter);
-
-  var btnPause = document.getElementById('btnPause');
-  btnPause.addEventListener('click', function(){
-    state.paused = !state.paused;
-    btnPause.setAttribute('aria-pressed', state.paused ? 'true':'false');
-    btnPause.textContent = state.paused ? 'Resume' : 'Pause';
-  });
-
-  var popRange = document.getElementById('popRange');
-  var popVal = document.getElementById('popVal');
-  popRange.addEventListener('input', function(){
-    state.population = parseInt(popRange.value,10);
-    popVal.textContent = state.population;
-    seedParticles(state.population);
-  });
-
-  var momRange = document.getElementById('momRange');
-  var momVal = document.getElementById('momVal');
-  momRange.addEventListener('input', function(){
-    state.momentum = parseInt(momRange.value,10)/100;
-    momVal.textContent = state.momentum.toFixed(2);
-  });
-
-  var reachRange = document.getElementById('reachRange');
-  var reachVal = document.getElementById('reachVal');
-  reachRange.addEventListener('input', function(){
-    state.reach = parseInt(reachRange.value,10);
-    reachVal.textContent = state.reach;
-    buildGrid();
-  });
-
-  var spaceRange = document.getElementById('spaceRange');
-  var spaceVal = document.getElementById('spaceVal');
-  spaceRange.addEventListener('input', function(){
-    state.spaceSize = parseInt(spaceRange.value,10);
-    spaceVal.textContent = state.spaceSize;
-    WORLD_W = state.spaceSize;
-    WORLD_H = state.spaceSize;
-    buildGrid();
-    fitCamera();
-  });
-
-  var speedRange = document.getElementById('speedRange');
-  var speedVal = document.getElementById('speedVal');
-  speedRange.addEventListener('input', function(){
-    state.timeScale = parseInt(speedRange.value,10)/10;
-    speedVal.textContent = state.timeScale.toFixed(1) + '×';
-  });
-
-  var regimeVal = document.getElementById('regimeVal');
-  var regimeIdx = RULE_MODE_KEYS.indexOf(state.ruleMode);
-  function setRegime(idx){
-    regimeIdx = (idx + RULE_MODE_KEYS.length) % RULE_MODE_KEYS.length;
-    state.ruleMode = RULE_MODE_KEYS[regimeIdx];
-    regimeVal.textContent = RULE_MODES[state.ruleMode].label;
-    newColony();
-  }
-  document.getElementById('regimeUp').addEventListener('click', function(){ setRegime(regimeIdx+1); });
-  document.getElementById('regimeDown').addEventListener('click', function(){ setRegime(regimeIdx-1); });
-
-  var groupVal = document.getElementById('groupVal');
-  document.getElementById('groupUp').addEventListener('click', function(){
-    if (state.groupCount < 6){ state.groupCount++; groupVal.textContent = state.groupCount; newColony(); }
-  });
-  document.getElementById('groupDown').addEventListener('click', function(){
-    if (state.groupCount > 2){ state.groupCount--; groupVal.textContent = state.groupCount; newColony(); }
-  });
 
   // --- init ---
   resize();
