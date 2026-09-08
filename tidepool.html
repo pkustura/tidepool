@@ -64,7 +64,7 @@
   }
 
   .stage{ position: fixed; inset: 0; }
-  canvas{ position: absolute; inset: 0; width: 100%; height: 100%; display:block; touch-action: none; cursor: crosshair; }
+  canvas{ position: absolute; inset: 0; width: 100%; height: 100%; display:block; touch-action: none; cursor: grab; }
 
   .tag{
     position: absolute; top: 20px; left: 20px;
@@ -528,16 +528,48 @@
     camera.cy = wy - (sy - H/2)/newZoom;
     camera.zoom = newZoom;
   }, { passive:false });
+  // plain drag pans the camera; shift+drag stirs the water. Decided once
+  // at pointerdown so a drag doesn't switch modes mid-gesture.
+  var dragMode = null; // 'pan' | 'stir'
+  var dragLast = { x:0, y:0 };
   canvas.addEventListener('pointerdown', function(e){
-    pointer.active = true;
-    var p = pointerPos(e); pointer.x = p.x; pointer.y = p.y;
+    var r = canvas.getBoundingClientRect();
+    dragLast.x = e.clientX - r.left;
+    dragLast.y = e.clientY - r.top;
+    if (e.shiftKey){
+      dragMode = 'stir';
+      pointer.active = true;
+      var p = pointerPos(e); pointer.x = p.x; pointer.y = p.y;
+      canvas.style.cursor = 'crosshair';
+    } else {
+      dragMode = 'pan';
+      canvas.style.cursor = 'grabbing';
+    }
   });
   window.addEventListener('pointermove', function(e){
-    if (!pointer.active) return;
-    var p = pointerPos(e); pointer.x = p.x; pointer.y = p.y;
+    if (!dragMode) return;
+    var r = canvas.getBoundingClientRect();
+    var sx = e.clientX - r.left, sy = e.clientY - r.top;
+    if (dragMode === 'stir'){
+      var p = pointerPos(e); pointer.x = p.x; pointer.y = p.y;
+    } else {
+      camera.cx -= (sx - dragLast.x)/camera.zoom;
+      camera.cy -= (sy - dragLast.y)/camera.zoom;
+    }
+    dragLast.x = sx; dragLast.y = sy;
   });
-  window.addEventListener('pointerup', function(){ pointer.active = false; });
+  window.addEventListener('pointerup', function(){
+    pointer.active = false;
+    dragMode = null;
+    canvas.style.cursor = 'grab';
+  });
   canvas.addEventListener('contextmenu', function(e){ e.preventDefault(); });
+  window.addEventListener('keydown', function(e){
+    if (e.key === 'Shift' && !dragMode) canvas.style.cursor = 'crosshair';
+  });
+  window.addEventListener('keyup', function(e){
+    if (e.key === 'Shift' && !dragMode) canvas.style.cursor = 'grab';
+  });
 
   function step(){
     var reach = state.reach;
