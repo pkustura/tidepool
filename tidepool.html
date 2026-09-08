@@ -259,6 +259,14 @@
     <button class="toggle" id="btnPause" aria-pressed="false">Pause</button>
 
     <div class="step">
+      <span class="slider label" style="flex:1">Regime <b id="regimeVal">Bonded</b></span>
+      <div class="stepbtns">
+        <button id="regimeDown" aria-label="Previous regime">‹</button>
+        <button id="regimeUp" aria-label="Next regime">›</button>
+      </div>
+    </div>
+
+    <div class="step">
       <span class="slider label" style="flex:1">Species <b id="speciesVal">5</b></span>
       <div class="stepbtns">
         <button id="specDown" aria-label="Fewer species">−</button>
@@ -272,13 +280,13 @@
     </label>
 
     <label class="slider">
-      <span class="label">Momentum <b id="momVal">0.90</b></span>
-      <input type="range" id="momRange" min="80" max="99" step="1" value="90">
+      <span class="label">Momentum <b id="momVal">0.75</b></span>
+      <input type="range" id="momRange" min="50" max="99" step="1" value="75">
     </label>
 
     <label class="slider">
-      <span class="label">Reach <b id="reachVal">65</b>px</span>
-      <input type="range" id="reachRange" min="30" max="120" step="5" value="65">
+      <span class="label">Reach <b id="reachVal">35</b>px</span>
+      <input type="range" id="reachRange" min="15" max="150" step="5" value="35">
     </label>
   </section>
 
@@ -332,16 +340,18 @@
   var STIR_STRENGTH = 0.9;
   var WALL_MARGIN = 28;
   var WALL_FORCE = 0.35;
+  var WALL_DAMP = 0.35;
   var FORCE_SCALE = 0.62;
 
   var state = {
     speciesCount: 5,
     population: 1200,
-    momentum: 0.90,
-    reach: 65,
+    momentum: 0.75,
+    reach: 35,
     paused: false,
     specimenNo: 1,
-    generation: 0
+    generation: 0,
+    ruleMode: 'bonded'
   };
 
   var px, py, vx, vy, sp, N;
@@ -349,7 +359,10 @@
 
   function rnd(a,b){ return a + Math.random()*(b-a); }
 
-  function makeRuleSet(count, selfRange){
+  var NEAR_SELF_RANGE = [-0.3, 0.6];
+  var FAR_SELF_RANGE = [-0.4, 0.4];
+
+  function makeUniformSet(count, selfRange){
     var m = new Float32Array(count*count);
     for (var i=0;i<count;i++){
       for (var j=0;j<count;j++){
@@ -359,9 +372,53 @@
     return m;
   }
 
+  // Each regime is a distinct hypothesis about what makes species affinities
+  // produce compelling self-organization. Near = short-range bonding/adhesion,
+  // Far = a longer, weaker field (electrostatic/chemotactic-style pull).
+  var RULE_MODES = {
+    random: {
+      label: 'Random',
+      gen: function(count){
+        return {
+          near: makeUniformSet(count, NEAR_SELF_RANGE),
+          far: makeUniformSet(count, FAR_SELF_RANGE)
+        };
+      }
+    },
+    bonded: {
+      label: 'Bonded',
+      // Near/far are anti-correlated in sign for most pairs, so a pair mostly
+      // settles at a preferred separation (attract close + repel far, or the
+      // reverse) instead of both bands pulling the same way. This is the
+      // mechanism behind stable shells/orbits rather than blobs or gas.
+      gen: function(count){
+        var ANTI_CORR = 0.75;
+        var near = new Float32Array(count*count);
+        var far = new Float32Array(count*count);
+        for (var i=0;i<count;i++){
+          for (var j=0;j<count;j++){
+            var idx = i*count+j;
+            var isSelf = i===j;
+            var nearVal = isSelf ? rnd(NEAR_SELF_RANGE[0], NEAR_SELF_RANGE[1]) : rnd(-1, 1);
+            var farRange = isSelf ? FAR_SELF_RANGE : [-1, 1];
+            var farMag = Math.abs(rnd(farRange[0], farRange[1]));
+            var farSign = nearVal >= 0 ? -1 : 1;
+            if (Math.random() > ANTI_CORR) farSign = Math.random() < 0.5 ? 1 : -1;
+            near[idx] = nearVal;
+            far[idx] = farMag * farSign;
+          }
+        }
+        return { near: near, far: far };
+      }
+    }
+  };
+  var RULE_MODE_KEYS = Object.keys(RULE_MODES);
+
   function makeRules(count){
-    ruleNear = makeRuleSet(count, [-0.3, 0.6]);
-    ruleFar = makeRuleSet(count, [-0.4, 0.4]);
+    var mode = RULE_MODES[state.ruleMode] || RULE_MODES[RULE_MODE_KEYS[0]];
+    var pair = mode.gen(count);
+    ruleNear = pair.near;
+    ruleFar = pair.far;
   }
 
   function seedParticles(n){
@@ -513,13 +570,20 @@
       vy[k] = (vy[k] + fy[k]*FORCE_SCALE) * mom;
       var nx2 = px[k]+vx[k], ny2 = py[k]+vy[k];
 
-      if (nx2 < WALL_MARGIN){ vx[k] += (WALL_MARGIN-nx2)*WALL_FORCE*0.1; }
-      if (nx2 > W-WALL_MARGIN){ vx[k] -= (nx2-(W-WALL_MARGIN))*WALL_FORCE*0.1; }
-      if (ny2 < WALL_MARGIN){ vy[k] += (WALL_MARGIN-ny2)*WALL_FORCE*0.1; }
-      if (ny2 > H-WALL_MARGIN){ vy[k] -= (ny2-(H-WALL_MARGIN))*WALL_FORCE*0.1; }
+      if (nx2 < WALL_MARGIN){ vx[k] += (WALL_MARGIN-nx2)*WALL_FORCE*0.1; if (vx[k] < 0) vx[k] *= (1-WALL_DAMP); }
+      if (nx2 > W-WALL_MARGIN){ vx[k] -= (nx2-(W-WALL_MARGIN))*WALL_FORCE*0.1; if (vx[k] > 0) vx[k] *= (1-WALL_DAMP); }
+      if (ny2 < WALL_MARGIN){ vy[k] += (WALL_MARGIN-ny2)*WALL_FORCE*0.1; if (vy[k] < 0) vy[k] *= (1-WALL_DAMP); }
+      if (ny2 > H-WALL_MARGIN){ vy[k] -= (ny2-(H-WALL_MARGIN))*WALL_FORCE*0.1; if (vy[k] > 0) vy[k] *= (1-WALL_DAMP); }
 
       px[k] = Math.min(W-2, Math.max(2, px[k]+vx[k]));
       py[k] = Math.min(H-2, Math.max(2, py[k]+vy[k]));
+
+      // inelastic contact: a particle pinned at the literal edge can't keep
+      // accumulating velocity into the glass frame after frame
+      if (px[k] <= 2 && vx[k] < 0) vx[k] = 0;
+      if (px[k] >= W-2 && vx[k] > 0) vx[k] = 0;
+      if (py[k] <= 2 && vy[k] < 0) vy[k] = 0;
+      if (py[k] >= H-2 && vy[k] > 0) vy[k] = 0;
     }
   }
 
@@ -651,6 +715,17 @@
     reachVal.textContent = state.reach;
     buildGrid();
   });
+
+  var regimeVal = document.getElementById('regimeVal');
+  var regimeIdx = RULE_MODE_KEYS.indexOf(state.ruleMode);
+  function setRegime(idx){
+    regimeIdx = (idx + RULE_MODE_KEYS.length) % RULE_MODE_KEYS.length;
+    state.ruleMode = RULE_MODE_KEYS[regimeIdx];
+    regimeVal.textContent = RULE_MODES[state.ruleMode].label;
+    newColony();
+  }
+  document.getElementById('regimeUp').addEventListener('click', function(){ setRegime(regimeIdx+1); });
+  document.getElementById('regimeDown').addEventListener('click', function(){ setRegime(regimeIdx-1); });
 
   var speciesVal = document.getElementById('speciesVal');
   document.getElementById('specUp').addEventListener('click', function(){
