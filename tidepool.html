@@ -666,19 +666,26 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
   var popEl = document.getElementById('popStat');
 
   var stepAcc = 0;
+  window.__prof = { step: 0, draw: 0, frames: 0 };
+  window.__sim = { state: state, seedParticles: seedParticles };
   function loop(){
     if (!state.paused){
       // fixed-step physics decoupled from render rate: timeScale > 1 runs
       // multiple steps per frame, timeScale < 1 skips frames, so the same
       // dynamics can be examined slower or faster without changing them
       stepAcc += state.timeScale;
+      var t0 = performance.now();
       while (stepAcc >= 1){
         step();
         state.generation++;
         stepAcc -= 1;
       }
+      window.__prof.step += performance.now() - t0;
     }
+    var t1 = performance.now();
     draw();
+    window.__prof.draw += performance.now() - t1;
+    window.__prof.frames++;
     if (state.generation % 6 === 0){
       genEl.textContent = state.generation.toLocaleString();
       popEl.textContent = N;
