@@ -218,6 +218,7 @@
   .grid{ display:grid; gap: 3px; }
   .cell{ width: 16px; height: 16px; border-radius: 2px; }
   .dot{ width:9px; height:9px; border-radius:50%; display:inline-block; }
+  .mass-row .dot{ margin-right:6px; vertical-align:-1px; }
   .mrow{ display:flex; align-items:center; gap: 4px; }
   .mrow + .mrow{ margin-top: 3px; }
   .bandlabel{
@@ -225,6 +226,7 @@
     color: var(--ink-dim); margin: 8px 0 5px;
   }
   .bandlabel:first-of-type{ margin-top: 0; }
+  #massPanel{ display:flex; flex-direction:column; gap:10px; }
   .legend{
     display:flex; gap: 12px; margin-top: 9px; padding-top: 8px;
     border-top: 1px dashed var(--line); font-size: 10px; color: var(--ink-dim);
@@ -267,10 +269,10 @@
     </div>
 
     <div class="step">
-      <span class="slider label" style="flex:1">Species <b id="speciesVal">5</b></span>
+      <span class="slider label" style="flex:1">Group <b id="groupVal">5</b></span>
       <div class="stepbtns">
-        <button id="specDown" aria-label="Fewer species">−</button>
-        <button id="specUp" aria-label="More species">+</button>
+        <button id="groupDown" aria-label="Fewer groups">−</button>
+        <button id="groupUp" aria-label="More groups">+</button>
       </div>
     </div>
 
@@ -298,6 +300,9 @@
       <span class="label">Speed <b id="speedVal">1.0×</b></span>
       <input type="range" id="speedRange" min="1" max="40" step="1" value="10">
     </label>
+
+    <div class="bandlabel">Physiology</div>
+    <div id="massPanel"></div>
   </section>
 
   <div class="readout">
@@ -305,7 +310,7 @@
     <div class="stat"><span>Population</span><b id="popStat">0</b></div>
   </div>
 
-  <aside class="matrix" aria-label="Species affinity matrices">
+  <aside class="matrix" aria-label="Group affinity matrices">
     <h2>Affinities</h2>
     <div class="bandlabel">Near</div>
     <div id="matrixNear"></div>
@@ -355,7 +360,7 @@
   var MIN_ZOOM = 0.12, MAX_ZOOM = 4;
 
   var state = {
-    speciesCount: 5,
+    groupCount: 5,
     population: 1200,
     momentum: 0.75,
     reach: 35,
@@ -388,7 +393,7 @@
   }
 
   var px, py, vx, vy, sp, N;
-  var ruleNear, ruleFar; // Float32Array speciesCount*speciesCount, each
+  var ruleNear, ruleFar; // Float32Array groupCount*groupCount, each
 
   function rnd(a,b){ return a + Math.random()*(b-a); }
 
@@ -405,7 +410,7 @@
     return m;
   }
 
-  // Each regime is a distinct hypothesis about what makes species affinities
+  // Each regime is a distinct hypothesis about what makes group affinities
   // produce compelling self-organization. Near = short-range bonding/adhesion,
   // Far = a longer, weaker field (electrostatic/chemotactic-style pull).
   var RULE_MODES = {
@@ -454,6 +459,17 @@
     ruleFar = pair.far;
   }
 
+  // Mass scales how much a given force accelerates a group (a = F/m); it
+  // does not make the underlying near/far rules reciprocal, so a lopsided
+  // affinity between two groups still self-propels the pair as before —
+  // mass just changes how much each side of that pair moves in response.
+  var MASS_MIN = 0.5, MASS_MAX = 2.2;
+  var groupMass;
+  function initMass(count){
+    groupMass = new Float32Array(count);
+    for (var i=0;i<count;i++) groupMass[i] = rnd(MASS_MIN, MASS_MAX);
+  }
+
   function seedParticles(n){
     N = n;
     px = new Float32Array(n); py = new Float32Array(n);
@@ -463,17 +479,19 @@
       px[i] = rnd(WORLD_W*0.1, WORLD_W*0.9);
       py[i] = rnd(WORLD_H*0.1, WORLD_H*0.9);
       vx[i] = 0; vy[i] = 0;
-      sp[i] = Math.floor(Math.random()*state.speciesCount);
+      sp[i] = Math.floor(Math.random()*state.groupCount);
     }
   }
 
   function newColony(){
     state.specimenNo++;
     document.getElementById('specimenNo').textContent = String(state.specimenNo).padStart(4,'0');
-    makeRules(state.speciesCount);
+    makeRules(state.groupCount);
+    initMass(state.groupCount);
     seedParticles(state.population);
     state.generation = 0;
     renderMatrix();
+    renderMassPanel();
   }
 
   function scatter(){
@@ -577,7 +595,7 @@
     var col = COLLISION_R;
     var mid = col + (reach-col)*0.5;
     var mom = state.momentum;
-    var count = state.speciesCount;
+    var count = state.groupCount;
 
     clearGrid();
     for (var i=0;i<N;i++){
@@ -640,15 +658,15 @@
           var db = Math.sqrt(d2b);
           var falloff = 1 - db/STIR_RADIUS;
           var ux2 = ddx2/db, uy2 = ddy2/db;
-          vx[i2] += (-uy2) * STIR_STRENGTH * falloff;
-          vy[i2] += ( ux2) * STIR_STRENGTH * falloff;
+          vx[i2] += (-uy2) * STIR_STRENGTH * falloff / groupMass[sp[i2]];
+          vy[i2] += ( ux2) * STIR_STRENGTH * falloff / groupMass[sp[i2]];
         }
       }
     }
 
     for (var k=0;k<N;k++){
-      vx[k] = (vx[k] + fx[k]*FORCE_SCALE) * mom;
-      vy[k] = (vy[k] + fy[k]*FORCE_SCALE) * mom;
+      vx[k] = (vx[k] + (fx[k]*FORCE_SCALE)/groupMass[sp[k]]) * mom;
+      vy[k] = (vy[k] + (fy[k]*FORCE_SCALE)/groupMass[sp[k]]) * mom;
       var nx2 = px[k]+vx[k], ny2 = py[k]+vy[k];
 
       if (nx2 < WALL_MARGIN){ vx[k] += (WALL_MARGIN-nx2)*WALL_FORCE*0.1; if (vx[k] < 0) vx[k] *= (1-WALL_DAMP); }
@@ -771,9 +789,52 @@
   }
 
   function renderMatrix(){
-    var count = state.speciesCount;
+    var count = state.groupCount;
     renderRuleGrid(document.getElementById('matrixNear'), ruleNear, count, 'Near');
     renderRuleGrid(document.getElementById('matrixFar'), ruleFar, count, 'Far');
+  }
+
+  function renderMassPanel(){
+    var count = state.groupCount;
+    var container = document.getElementById('massPanel');
+    container.innerHTML = '';
+    for (var i=0;i<count;i++){
+      (function(i){
+        var row = document.createElement('label');
+        row.className = 'slider mass-row';
+
+        var labelSpan = document.createElement('span');
+        labelSpan.className = 'label';
+
+        var left = document.createElement('span');
+        var dot = document.createElement('i');
+        dot.className = 'dot';
+        dot.style.background = PALETTE[i].hex;
+        left.appendChild(dot);
+        left.appendChild(document.createTextNode('Mass'));
+
+        var valB = document.createElement('b');
+        valB.textContent = groupMass[i].toFixed(2);
+
+        labelSpan.appendChild(left);
+        labelSpan.appendChild(valB);
+
+        var input = document.createElement('input');
+        input.type = 'range';
+        input.min = Math.round(MASS_MIN*100);
+        input.max = Math.round(MASS_MAX*100);
+        input.step = 5;
+        input.value = Math.round(groupMass[i]*100);
+        input.addEventListener('input', function(){
+          groupMass[i] = parseInt(input.value,10)/100;
+          valB.textContent = groupMass[i].toFixed(2);
+        });
+
+        row.appendChild(labelSpan);
+        row.appendChild(input);
+        container.appendChild(row);
+      })(i);
+    }
   }
 
   // --- controls wiring ---
@@ -839,12 +900,12 @@
   document.getElementById('regimeUp').addEventListener('click', function(){ setRegime(regimeIdx+1); });
   document.getElementById('regimeDown').addEventListener('click', function(){ setRegime(regimeIdx-1); });
 
-  var speciesVal = document.getElementById('speciesVal');
-  document.getElementById('specUp').addEventListener('click', function(){
-    if (state.speciesCount < 6){ state.speciesCount++; speciesVal.textContent = state.speciesCount; newColony(); }
+  var groupVal = document.getElementById('groupVal');
+  document.getElementById('groupUp').addEventListener('click', function(){
+    if (state.groupCount < 6){ state.groupCount++; groupVal.textContent = state.groupCount; newColony(); }
   });
-  document.getElementById('specDown').addEventListener('click', function(){
-    if (state.speciesCount > 2){ state.speciesCount--; speciesVal.textContent = state.speciesCount; newColony(); }
+  document.getElementById('groupDown').addEventListener('click', function(){
+    if (state.groupCount > 2){ state.groupCount--; groupVal.textContent = state.groupCount; newColony(); }
   });
 
   // --- init ---
