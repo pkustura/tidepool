@@ -288,6 +288,16 @@
       <span class="label">Reach <b id="reachVal">35</b>px</span>
       <input type="range" id="reachRange" min="15" max="150" step="5" value="35">
     </label>
+
+    <label class="slider">
+      <span class="label">Space <b id="spaceVal">1600</b>px</span>
+      <input type="range" id="spaceRange" min="600" max="6000" step="200" value="1600">
+    </label>
+
+    <label class="slider">
+      <span class="label">Speed <b id="speedVal">1.0×</b></span>
+      <input type="range" id="speedRange" min="1" max="40" step="1" value="10">
+    </label>
   </section>
 
   <div class="readout">
@@ -342,6 +352,7 @@
   var WALL_FORCE = 0.35;
   var WALL_DAMP = 0.35;
   var FORCE_SCALE = 0.62;
+  var MIN_ZOOM = 0.12, MAX_ZOOM = 4;
 
   var state = {
     speciesCount: 5,
@@ -351,8 +362,30 @@
     paused: false,
     specimenNo: 1,
     generation: 0,
-    ruleMode: 'bonded'
+    ruleMode: 'bonded',
+    spaceSize: 1600,
+    timeScale: 1
   };
+
+  // World space is the fixed simulation domain (walls, seeding, spatial grid
+  // all live here). The camera maps a window of it onto the viewport (W,H),
+  // so "Space" can grow the tank independently of screen size.
+  var WORLD_W = state.spaceSize, WORLD_H = state.spaceSize;
+  var camera = { cx: WORLD_W/2, cy: WORLD_H/2, zoom: 1 };
+
+  function clamp(v, lo, hi){ return Math.min(hi, Math.max(lo, v)); }
+
+  function fitCamera(){
+    camera.cx = WORLD_W/2;
+    camera.cy = WORLD_H/2;
+    var pad = 40;
+    camera.zoom = clamp(Math.min((W-pad)/WORLD_W, (H-pad)/WORLD_H), MIN_ZOOM, MAX_ZOOM);
+  }
+
+  function applyCameraTransform(){
+    var s = dpr*camera.zoom;
+    ctx.setTransform(s,0,0,s, dpr*(W/2 - camera.cx*camera.zoom), dpr*(H/2 - camera.cy*camera.zoom));
+  }
 
   var px, py, vx, vy, sp, N;
   var ruleNear, ruleFar; // Float32Array speciesCount*speciesCount, each
@@ -427,8 +460,8 @@
     vx = new Float32Array(n); vy = new Float32Array(n);
     sp = new Uint8Array(n);
     for (var i=0;i<n;i++){
-      px[i] = rnd(W*0.1, W*0.9);
-      py[i] = rnd(H*0.1, H*0.9);
+      px[i] = rnd(WORLD_W*0.1, WORLD_W*0.9);
+      py[i] = rnd(WORLD_H*0.1, WORLD_H*0.9);
       vx[i] = 0; vy[i] = 0;
       sp[i] = Math.floor(Math.random()*state.speciesCount);
     }
@@ -445,8 +478,8 @@
 
   function scatter(){
     for (var i=0;i<N;i++){
-      px[i] = rnd(W*0.1, W*0.9);
-      py[i] = rnd(H*0.1, H*0.9);
+      px[i] = rnd(WORLD_W*0.1, WORLD_W*0.9);
+      py[i] = rnd(WORLD_H*0.1, WORLD_H*0.9);
       vx[i] = 0; vy[i] = 0;
     }
   }
@@ -455,8 +488,8 @@
   var cellSize, cols, rows, buckets;
   function buildGrid(){
     cellSize = Math.max(20, state.reach);
-    cols = Math.max(1, Math.ceil(W/cellSize));
-    rows = Math.max(1, Math.ceil(H/cellSize));
+    cols = Math.max(1, Math.ceil(WORLD_W/cellSize));
+    rows = Math.max(1, Math.ceil(WORLD_H/cellSize));
     buckets = new Array(cols*rows);
     for (var i=0;i<buckets.length;i++) buckets[i] = [];
   }
@@ -475,10 +508,26 @@
   var pointer = { active:false, x:0, y:0 };
   function pointerPos(e){
     var r = canvas.getBoundingClientRect();
-    var cx = (e.touches ? e.touches[0].clientX : e.clientX) - r.left;
-    var cy = (e.touches ? e.touches[0].clientY : e.clientY) - r.top;
-    return { x: cx, y: cy };
+    var sx = (e.touches ? e.touches[0].clientX : e.clientX) - r.left;
+    var sy = (e.touches ? e.touches[0].clientY : e.clientY) - r.top;
+    // screen (CSS px) -> world space, so stir math stays in the same
+    // coordinates as particle positions regardless of pan/zoom
+    return {
+      x: camera.cx + (sx - W/2)/camera.zoom,
+      y: camera.cy + (sy - H/2)/camera.zoom
+    };
   }
+  canvas.addEventListener('wheel', function(e){
+    e.preventDefault();
+    var r = canvas.getBoundingClientRect();
+    var sx = e.clientX - r.left, sy = e.clientY - r.top;
+    var wx = camera.cx + (sx - W/2)/camera.zoom;
+    var wy = camera.cy + (sy - H/2)/camera.zoom;
+    var newZoom = clamp(camera.zoom * Math.exp(-e.deltaY*0.0015), MIN_ZOOM, MAX_ZOOM);
+    camera.cx = wx - (sx - W/2)/newZoom;
+    camera.cy = wy - (sy - H/2)/newZoom;
+    camera.zoom = newZoom;
+  }, { passive:false });
   canvas.addEventListener('pointerdown', function(e){
     pointer.active = true;
     var p = pointerPos(e); pointer.x = p.x; pointer.y = p.y;
@@ -571,19 +620,19 @@
       var nx2 = px[k]+vx[k], ny2 = py[k]+vy[k];
 
       if (nx2 < WALL_MARGIN){ vx[k] += (WALL_MARGIN-nx2)*WALL_FORCE*0.1; if (vx[k] < 0) vx[k] *= (1-WALL_DAMP); }
-      if (nx2 > W-WALL_MARGIN){ vx[k] -= (nx2-(W-WALL_MARGIN))*WALL_FORCE*0.1; if (vx[k] > 0) vx[k] *= (1-WALL_DAMP); }
+      if (nx2 > WORLD_W-WALL_MARGIN){ vx[k] -= (nx2-(WORLD_W-WALL_MARGIN))*WALL_FORCE*0.1; if (vx[k] > 0) vx[k] *= (1-WALL_DAMP); }
       if (ny2 < WALL_MARGIN){ vy[k] += (WALL_MARGIN-ny2)*WALL_FORCE*0.1; if (vy[k] < 0) vy[k] *= (1-WALL_DAMP); }
-      if (ny2 > H-WALL_MARGIN){ vy[k] -= (ny2-(H-WALL_MARGIN))*WALL_FORCE*0.1; if (vy[k] > 0) vy[k] *= (1-WALL_DAMP); }
+      if (ny2 > WORLD_H-WALL_MARGIN){ vy[k] -= (ny2-(WORLD_H-WALL_MARGIN))*WALL_FORCE*0.1; if (vy[k] > 0) vy[k] *= (1-WALL_DAMP); }
 
-      px[k] = Math.min(W-2, Math.max(2, px[k]+vx[k]));
-      py[k] = Math.min(H-2, Math.max(2, py[k]+vy[k]));
+      px[k] = Math.min(WORLD_W-2, Math.max(2, px[k]+vx[k]));
+      py[k] = Math.min(WORLD_H-2, Math.max(2, py[k]+vy[k]));
 
       // inelastic contact: a particle pinned at the literal edge can't keep
       // accumulating velocity into the glass frame after frame
       if (px[k] <= 2 && vx[k] < 0) vx[k] = 0;
-      if (px[k] >= W-2 && vx[k] > 0) vx[k] = 0;
+      if (px[k] >= WORLD_W-2 && vx[k] > 0) vx[k] = 0;
       if (py[k] <= 2 && vy[k] < 0) vy[k] = 0;
-      if (py[k] >= H-2 && vy[k] > 0) vy[k] = 0;
+      if (py[k] >= WORLD_H-2 && vy[k] > 0) vy[k] = 0;
     }
   }
 
@@ -600,8 +649,13 @@
   function draw(){
     readBg();
     bgRgb = hexToRgb(bgColor.length===7 ? bgColor : '#edf1ea');
+    // trail wash happens in plain viewport space so it always covers the
+    // full canvas regardless of camera pan/zoom
+    ctx.setTransform(dpr,0,0,dpr,0,0);
     ctx.fillStyle = 'rgba(' + bgRgb[0]+','+bgRgb[1]+','+bgRgb[2] + ',0.16)';
     ctx.fillRect(0,0,W,H);
+
+    applyCameraTransform();
 
     for (var i=0;i<N;i++){
       var c = PALETTE[sp[i] % PALETTE.length].hex;
@@ -614,7 +668,7 @@
     if (pointer.active){
       ctx.beginPath();
       ctx.strokeStyle = 'rgba(140,140,140,0.35)';
-      ctx.lineWidth = 1;
+      ctx.lineWidth = 1/camera.zoom;
       ctx.arc(pointer.x, pointer.y, STIR_RADIUS, 0, Math.PI*2);
       ctx.stroke();
     }
@@ -623,10 +677,18 @@
   var genEl = document.getElementById('genStat');
   var popEl = document.getElementById('popStat');
 
+  var stepAcc = 0;
   function loop(){
     if (!state.paused){
-      step();
-      state.generation++;
+      // fixed-step physics decoupled from render rate: timeScale > 1 runs
+      // multiple steps per frame, timeScale < 1 skips frames, so the same
+      // dynamics can be examined slower or faster without changing them
+      stepAcc += state.timeScale;
+      while (stepAcc >= 1){
+        step();
+        state.generation++;
+        stepAcc -= 1;
+      }
     }
     draw();
     if (state.generation % 6 === 0){
@@ -716,6 +778,24 @@
     buildGrid();
   });
 
+  var spaceRange = document.getElementById('spaceRange');
+  var spaceVal = document.getElementById('spaceVal');
+  spaceRange.addEventListener('input', function(){
+    state.spaceSize = parseInt(spaceRange.value,10);
+    spaceVal.textContent = state.spaceSize;
+    WORLD_W = state.spaceSize;
+    WORLD_H = state.spaceSize;
+    buildGrid();
+    fitCamera();
+  });
+
+  var speedRange = document.getElementById('speedRange');
+  var speedVal = document.getElementById('speedVal');
+  speedRange.addEventListener('input', function(){
+    state.timeScale = parseInt(speedRange.value,10)/10;
+    speedVal.textContent = state.timeScale.toFixed(1) + '×';
+  });
+
   var regimeVal = document.getElementById('regimeVal');
   var regimeIdx = RULE_MODE_KEYS.indexOf(state.ruleMode);
   function setRegime(idx){
@@ -738,8 +818,9 @@
   // --- init ---
   resize();
   buildGrid();
+  fitCamera();
   newColony();
-  window.addEventListener('resize', function(){ resize(); buildGrid(); });
+  window.addEventListener('resize', resize);
   requestAnimationFrame(loop);
 })();
 </script>
