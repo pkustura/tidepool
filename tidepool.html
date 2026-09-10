@@ -243,13 +243,13 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
 (function(){
   "use strict";
 
-  var canvas = document.getElementById('pool');
-  var ctx = canvas.getContext('2d');
-  var dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
-  var W = 0, H = 0;
+  const canvas = document.getElementById('pool');
+  const ctx = canvas.getContext('2d');
+  const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+  let W = 0, H = 0;
 
   function resize(){
-    var r = canvas.getBoundingClientRect();
+    const r = canvas.getBoundingClientRect();
     W = r.width; H = r.height;
     canvas.width = Math.round(W * dpr);
     canvas.height = Math.round(H * dpr);
@@ -257,7 +257,7 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
   }
   window.addEventListener('resize', resize);
 
-  var PALETTE = [
+  const PALETTE = [
     { name:'cyan',    hex:'#4FD9E8' },
     { name:'magenta', hex:'#E85FB0' },
     { name:'lime',    hex:'#B7DE3E' },
@@ -266,60 +266,61 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
     { name:'rose',    hex:'#EE7F7F' }
   ];
 
-  var COLLISION_R = 8;
-  var STIR_RADIUS = 150;
-  var STIR_STRENGTH = 0.9;
-  var WALL_MARGIN = 28;
-  var WALL_FORCE = 0.35;
-  var WALL_DAMP = 0.35;
-  var FORCE_SCALE = 0.62;
-  var MIN_ZOOM = 0.12, MAX_ZOOM = 4;
+  const COLLISION_R = 8;
+  const STIR_RADIUS = 150;
+  const STIR_STRENGTH = 0.9;
+  const WALL_MARGIN = 28;
+  const WALL_FORCE = 0.35;
+  const WALL_DAMP = 0.35;
+  const FORCE_SCALE = 0.62;
+  const MIN_ZOOM = 0.12, MAX_ZOOM = 4;
 
-  var state = {
+  const state = {
     groupCount: 5,
     population: 1200,
     momentum: 0.75,
     reach: 35,
     paused: false,
-    specimenNo: 1,
+    specimenNo: 0,
     generation: 0,
-    ruleMode: 'bonded',
+    ruleMode: 'random',
     spaceSize: 1600,
-    timeScale: 1
+    timeScale: 1,
+    trailAlpha: 0.7
   };
 
   // World space is the fixed simulation domain (walls, seeding, spatial grid
   // all live here). The camera maps a window of it onto the viewport (W,H),
   // so "Space" can grow the tank independently of screen size.
-  var WORLD_W = state.spaceSize, WORLD_H = state.spaceSize;
-  var camera = { cx: WORLD_W/2, cy: WORLD_H/2, zoom: 1 };
+  let WORLD_W = state.spaceSize, WORLD_H = state.spaceSize;
+  const camera = { cx: WORLD_W/2, cy: WORLD_H/2, zoom: 1 };
 
   function clamp(v, lo, hi){ return Math.min(hi, Math.max(lo, v)); }
 
   function fitCamera(){
     camera.cx = WORLD_W/2;
     camera.cy = WORLD_H/2;
-    var pad = 40;
+    const pad = 40;
     camera.zoom = clamp(Math.min((W-pad)/WORLD_W, (H-pad)/WORLD_H), MIN_ZOOM, MAX_ZOOM);
   }
 
   function applyCameraTransform(){
-    var s = dpr*camera.zoom;
+    const s = dpr*camera.zoom;
     ctx.setTransform(s,0,0,s, dpr*(W/2 - camera.cx*camera.zoom), dpr*(H/2 - camera.cy*camera.zoom));
   }
 
-  var px, py, vx, vy, sp, N;
-  var ruleNear, ruleFar; // Float32Array groupCount*groupCount, each
+  let px, py, vx, vy, sp, N;
+  let ruleNear, ruleFar; // Float32Array groupCount*groupCount, each
 
   function rnd(a,b){ return a + Math.random()*(b-a); }
 
-  var NEAR_SELF_RANGE = [-0.3, 0.6];
-  var FAR_SELF_RANGE = [-0.4, 0.4];
+  const NEAR_SELF_RANGE = [-0.3, 0.6];
+  const FAR_SELF_RANGE = [-0.4, 0.4];
 
   function makeUniformSet(count, selfRange){
-    var m = new Float32Array(count*count);
-    for (var i=0;i<count;i++){
-      for (var j=0;j<count;j++){
+    const m = new Float32Array(count*count);
+    for (let i=0;i<count;i++){
+      for (let j=0;j<count;j++){
         m[i*count+j] = i===j ? rnd(selfRange[0], selfRange[1]) : rnd(-1, 1);
       }
     }
@@ -329,10 +330,10 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
   // Each regime is a distinct hypothesis about what makes group affinities
   // produce compelling self-organization. Near = short-range bonding/adhesion,
   // Far = a longer, weaker field (electrostatic/chemotactic-style pull).
-  var RULE_MODES = {
+  const RULE_MODES = {
     random: {
       label: 'Random',
-      gen: function(count){
+      gen(count){
         return {
           near: makeUniformSet(count, NEAR_SELF_RANGE),
           far: makeUniformSet(count, FAR_SELF_RANGE)
@@ -345,32 +346,32 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
       // settles at a preferred separation (attract close + repel far, or the
       // reverse) instead of both bands pulling the same way. This is the
       // mechanism behind stable shells/orbits rather than blobs or gas.
-      gen: function(count){
-        var ANTI_CORR = 0.75;
-        var near = new Float32Array(count*count);
-        var far = new Float32Array(count*count);
-        for (var i=0;i<count;i++){
-          for (var j=0;j<count;j++){
-            var idx = i*count+j;
-            var isSelf = i===j;
-            var nearVal = isSelf ? rnd(NEAR_SELF_RANGE[0], NEAR_SELF_RANGE[1]) : rnd(-1, 1);
-            var farRange = isSelf ? FAR_SELF_RANGE : [-1, 1];
-            var farMag = Math.abs(rnd(farRange[0], farRange[1]));
-            var farSign = nearVal >= 0 ? -1 : 1;
+      gen(count){
+        const ANTI_CORR = 0.75;
+        const near = new Float32Array(count*count);
+        const far = new Float32Array(count*count);
+        for (let i=0;i<count;i++){
+          for (let j=0;j<count;j++){
+            const idx = i*count+j;
+            const isSelf = i===j;
+            const nearVal = isSelf ? rnd(NEAR_SELF_RANGE[0], NEAR_SELF_RANGE[1]) : rnd(-1, 1);
+            const farRange = isSelf ? FAR_SELF_RANGE : [-1, 1];
+            const farMag = Math.abs(rnd(farRange[0], farRange[1]));
+            let farSign = nearVal >= 0 ? -1 : 1;
             if (Math.random() > ANTI_CORR) farSign = Math.random() < 0.5 ? 1 : -1;
             near[idx] = nearVal;
             far[idx] = farMag * farSign;
           }
         }
-        return { near: near, far: far };
+        return { near, far };
       }
     }
   };
-  var RULE_MODE_KEYS = Object.keys(RULE_MODES);
+  const RULE_MODE_KEYS = Object.keys(RULE_MODES);
 
   function makeRules(count){
-    var mode = RULE_MODES[state.ruleMode] || RULE_MODES[RULE_MODE_KEYS[0]];
-    var pair = mode.gen(count);
+    const mode = RULE_MODES[state.ruleMode] || RULE_MODES[RULE_MODE_KEYS[0]];
+    const pair = mode.gen(count);
     ruleNear = pair.near;
     ruleFar = pair.far;
   }
@@ -379,28 +380,28 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
   // does not make the underlying near/far rules reciprocal, so a lopsided
   // affinity between two groups still self-propels the pair as before —
   // mass just changes how much each side of that pair moves in response.
-  var MASS_MIN = 0.5, MASS_MAX = 2.2;
-  var groupMass;
+  const MASS_MIN = 0.5, MASS_MAX = 2.2;
+  let groupMass;
   function initMass(count){
     groupMass = new Float32Array(count);
-    for (var i=0;i<count;i++) groupMass[i] = rnd(MASS_MIN, MASS_MAX);
+    for (let i=0;i<count;i++) groupMass[i] = rnd(MASS_MIN, MASS_MAX);
   }
 
   // Relative population share per group — weights, not fractions (like
   // parts in a recipe), so a 2:1 weight ratio holds regardless of how many
   // groups exist. This is what lets a minority group end up consistently
   // flanked by a majority partner, i.e. fixed-stoichiometry structure.
-  var WEIGHT_MIN = 0.3, WEIGHT_MAX = 3;
-  var groupWeight;
+  const WEIGHT_MIN = 0.3, WEIGHT_MAX = 3;
+  let groupWeight;
   function initWeights(count){
     groupWeight = new Float32Array(count);
-    for (var i=0;i<count;i++) groupWeight[i] = rnd(WEIGHT_MIN, WEIGHT_MAX);
+    for (let i=0;i<count;i++) groupWeight[i] = rnd(WEIGHT_MIN, WEIGHT_MAX);
   }
   function sampleGroup(){
-    var total = 0;
-    for (var i=0;i<groupWeight.length;i++) total += groupWeight[i];
-    var r = Math.random()*total;
-    for (var i2=0;i2<groupWeight.length;i2++){
+    let total = 0;
+    for (let i=0;i<groupWeight.length;i++) total += groupWeight[i];
+    let r = Math.random()*total;
+    for (let i2=0;i2<groupWeight.length;i2++){
       r -= groupWeight[i2];
       if (r <= 0) return i2;
     }
@@ -412,7 +413,7 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
     px = new Float32Array(n); py = new Float32Array(n);
     vx = new Float32Array(n); vy = new Float32Array(n);
     sp = new Uint8Array(n);
-    for (var i=0;i<n;i++){
+    for (let i=0;i<n;i++){
       px[i] = rnd(WORLD_W*0.1, WORLD_W*0.9);
       py[i] = rnd(WORLD_H*0.1, WORLD_H*0.9);
       vx[i] = 0; vy[i] = 0;
@@ -433,7 +434,7 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
   }
 
   function scatter(){
-    for (var i=0;i<N;i++){
+    for (let i=0;i<N;i++){
       px[i] = rnd(WORLD_W*0.1, WORLD_W*0.9);
       py[i] = rnd(WORLD_H*0.1, WORLD_H*0.9);
       vx[i] = 0; vy[i] = 0;
@@ -441,31 +442,31 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
   }
 
   // --- spatial grid ---
-  var cellSize, cols, rows, buckets;
+  let cellSize, cols, rows, buckets;
   function buildGrid(){
     cellSize = Math.max(20, state.reach);
     cols = Math.max(1, Math.ceil(WORLD_W/cellSize));
     rows = Math.max(1, Math.ceil(WORLD_H/cellSize));
     buckets = new Array(cols*rows);
-    for (var i=0;i<buckets.length;i++) buckets[i] = [];
+    for (let i=0;i<buckets.length;i++) buckets[i] = [];
   }
 
   function clearGrid(){
-    for (var i=0;i<buckets.length;i++) buckets[i].length = 0;
+    for (let i=0;i<buckets.length;i++) buckets[i].length = 0;
   }
 
   function cellIndex(x,y){
-    var cx = Math.min(cols-1, Math.max(0, (x/cellSize)|0));
-    var cy = Math.min(rows-1, Math.max(0, (y/cellSize)|0));
+    const cx = Math.min(cols-1, Math.max(0, (x/cellSize)|0));
+    const cy = Math.min(rows-1, Math.max(0, (y/cellSize)|0));
     return cy*cols+cx;
   }
 
   // --- pointer stir ---
-  var pointer = { active:false, x:0, y:0 };
+  const pointer = { active:false, x:0, y:0 };
   function pointerPos(e){
-    var r = canvas.getBoundingClientRect();
-    var sx = (e.touches ? e.touches[0].clientX : e.clientX) - r.left;
-    var sy = (e.touches ? e.touches[0].clientY : e.clientY) - r.top;
+    const r = canvas.getBoundingClientRect();
+    const sx = (e.touches ? e.touches[0].clientX : e.clientX) - r.left;
+    const sy = (e.touches ? e.touches[0].clientY : e.clientY) - r.top;
     // screen (CSS px) -> world space, so stir math stays in the same
     // coordinates as particle positions regardless of pan/zoom
     return {
@@ -473,139 +474,154 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
       y: camera.cy + (sy - H/2)/camera.zoom
     };
   }
-  canvas.addEventListener('wheel', function(e){
+  canvas.addEventListener('wheel', (e) => {
     e.preventDefault();
-    var r = canvas.getBoundingClientRect();
-    var sx = e.clientX - r.left, sy = e.clientY - r.top;
-    var wx = camera.cx + (sx - W/2)/camera.zoom;
-    var wy = camera.cy + (sy - H/2)/camera.zoom;
-    var newZoom = clamp(camera.zoom * Math.exp(-e.deltaY*0.0015), MIN_ZOOM, MAX_ZOOM);
+    const r = canvas.getBoundingClientRect();
+    const sx = e.clientX - r.left, sy = e.clientY - r.top;
+    const wx = camera.cx + (sx - W/2)/camera.zoom;
+    const wy = camera.cy + (sy - H/2)/camera.zoom;
+    const newZoom = clamp(camera.zoom * Math.exp(-e.deltaY*0.0015), MIN_ZOOM, MAX_ZOOM);
     camera.cx = wx - (sx - W/2)/newZoom;
     camera.cy = wy - (sy - H/2)/newZoom;
     camera.zoom = newZoom;
   }, { passive:false });
   // plain drag pans the camera; shift+drag stirs the water. Decided once
   // at pointerdown so a drag doesn't switch modes mid-gesture.
-  var dragMode = null; // 'pan' | 'stir'
-  var dragLast = { x:0, y:0 };
-  canvas.addEventListener('pointerdown', function(e){
-    var r = canvas.getBoundingClientRect();
+  let dragMode = null; // 'pan' | 'stir'
+  const dragLast = { x:0, y:0 };
+  canvas.addEventListener('pointerdown', (e) => {
+    const r = canvas.getBoundingClientRect();
     dragLast.x = e.clientX - r.left;
     dragLast.y = e.clientY - r.top;
     if (e.shiftKey){
       dragMode = 'stir';
       pointer.active = true;
-      var p = pointerPos(e); pointer.x = p.x; pointer.y = p.y;
+      const p = pointerPos(e); pointer.x = p.x; pointer.y = p.y;
       canvas.style.cursor = 'crosshair';
     } else {
       dragMode = 'pan';
       canvas.style.cursor = 'grabbing';
     }
   });
-  window.addEventListener('pointermove', function(e){
+  window.addEventListener('pointermove', (e) => {
     if (!dragMode) return;
-    var r = canvas.getBoundingClientRect();
-    var sx = e.clientX - r.left, sy = e.clientY - r.top;
+    const r = canvas.getBoundingClientRect();
+    const sx = e.clientX - r.left, sy = e.clientY - r.top;
     if (dragMode === 'stir'){
-      var p = pointerPos(e); pointer.x = p.x; pointer.y = p.y;
+      const p = pointerPos(e); pointer.x = p.x; pointer.y = p.y;
     } else {
       camera.cx -= (sx - dragLast.x)/camera.zoom;
       camera.cy -= (sy - dragLast.y)/camera.zoom;
     }
     dragLast.x = sx; dragLast.y = sy;
   });
-  window.addEventListener('pointerup', function(){
+  window.addEventListener('pointerup', () => {
     pointer.active = false;
     dragMode = null;
     canvas.style.cursor = 'grab';
   });
-  canvas.addEventListener('contextmenu', function(e){ e.preventDefault(); });
-  window.addEventListener('keydown', function(e){
+  canvas.addEventListener('contextmenu', (e) => { e.preventDefault(); });
+  window.addEventListener('keydown', (e) => {
     if (e.key === 'Shift' && !dragMode) canvas.style.cursor = 'crosshair';
   });
-  window.addEventListener('keyup', function(e){
+  window.addEventListener('keyup', (e) => {
     if (e.key === 'Shift' && !dragMode) canvas.style.cursor = 'grab';
   });
 
   function step(){
-    var reach = state.reach;
-    var reach2 = reach*reach;
-    var col = COLLISION_R;
-    var mid = col + (reach-col)*0.5;
-    var mom = state.momentum;
-    var count = state.groupCount;
+    const reach = state.reach;
+    const reach2 = reach*reach;
+    const col = COLLISION_R;
+    const mid = col + (reach-col)*0.5;
+    const mom = state.momentum;
+    const count = state.groupCount;
+
+    // Hot-path locals declared once and reassigned across iterations
+    // (never re-declared per iteration) — same reuse discipline `var`
+    // gave us for free, kept explicit here since this loop runs
+    // millions of times per step at high population.
+    let i, here, spi, si, pxi, pyi, fxi, fyi;
+    let ny, nx, neigh, j, ddx, ddy, d2, d, ux, uy, fij, fji;
+    let rep, t, tri, t2, tri2;
 
     clearGrid();
-    for (var i=0;i<N;i++){
+    for (i=0;i<N;i++){
       buckets[cellIndex(px[i], py[i])].push(i);
     }
 
-    var fx = new Float32Array(N);
-    var fy = new Float32Array(N);
+    const fx = new Float32Array(N);
+    const fy = new Float32Array(N);
 
-    for (var cy=0; cy<rows; cy++){
-      for (var cx=0; cx<cols; cx++){
-        var here = buckets[cy*cols+cx];
-        for (var a=0; a<here.length; a++){
-          var i = here[a];
-          for (var dyc=-1; dyc<=1; dyc++){
-            var ny = cy+dyc; if (ny<0||ny>=rows) continue;
-            for (var dxc=-1; dxc<=1; dxc++){
-              var nx = cx+dxc; if (nx<0||nx>=cols) continue;
-              var neigh = buckets[ny*cols+nx];
-              for (var b=0;b<neigh.length;b++){
-                var j = neigh[b];
+    for (let cy=0; cy<rows; cy++){
+      for (let cx=0; cx<cols; cx++){
+        here = buckets[cy*cols+cx];
+        for (let a=0; a<here.length; a++){
+          i = here[a];
+          // avoids recomputing sp[i]*count and re-reading px[i]/py[i] on
+          // every candidate pair, and accumulates i's side of the force
+          // in locals instead of a typed-array read-modify-write per pair
+          spi = sp[i];
+          si = spi*count;
+          pxi = px[i]; pyi = py[i];
+          fxi = 0; fyi = 0;
+          for (let dyc=-1; dyc<=1; dyc++){
+            ny = cy+dyc; if (ny<0||ny>=rows) continue;
+            for (let dxc=-1; dxc<=1; dxc++){
+              nx = cx+dxc; if (nx<0||nx>=cols) continue;
+              neigh = buckets[ny*cols+nx];
+              for (let b=0;b<neigh.length;b++){
+                j = neigh[b];
                 if (j<=i) continue;
-                var ddx = px[j]-px[i];
-                var ddy = py[j]-py[i];
-                var d2 = ddx*ddx+ddy*ddy;
+                ddx = px[j]-pxi;
+                ddy = py[j]-pyi;
+                d2 = ddx*ddx+ddy*ddy;
                 if (d2 > reach2 || d2 < 0.0001) continue;
-                var d = Math.sqrt(d2);
-                var ux = ddx/d, uy = ddy/d;
+                d = Math.sqrt(d2);
+                ux = ddx/d; uy = ddy/d;
 
-                var fij, fji;
                 if (d < col){
-                  var rep = (d/col - 1);
+                  rep = (d/col - 1);
                   fij = rep; fji = rep;
                 } else if (d < mid){
-                  var t = (d - col) / (mid - col);
-                  var tri = 1 - Math.abs(2*t - 1);
-                  fij = ruleNear[sp[i]*count+sp[j]] * tri;
-                  fji = ruleNear[sp[j]*count+sp[i]] * tri;
+                  t = (d - col) / (mid - col);
+                  tri = 1 - Math.abs(2*t - 1);
+                  fij = ruleNear[si+sp[j]] * tri;
+                  fji = ruleNear[sp[j]*count+spi] * tri;
                 } else {
-                  var t2 = (d - mid) / (reach - mid);
-                  var tri2 = 1 - Math.abs(2*t2 - 1);
-                  fij = ruleFar[sp[i]*count+sp[j]] * tri2;
-                  fji = ruleFar[sp[j]*count+sp[i]] * tri2;
+                  t2 = (d - mid) / (reach - mid);
+                  tri2 = 1 - Math.abs(2*t2 - 1);
+                  fij = ruleFar[si+sp[j]] * tri2;
+                  fji = ruleFar[sp[j]*count+spi] * tri2;
                 }
-                fx[i] += ux*fij; fy[i] += uy*fij;
+                fxi += ux*fij; fyi += uy*fij;
                 fx[j] -= ux*fji; fy[j] -= uy*fji;
               }
             }
           }
+          fx[i] += fxi; fy[i] += fyi;
         }
       }
     }
 
     // pointer stir (tangential swirl)
     if (pointer.active){
-      for (var i2=0;i2<N;i2++){
-        var ddx2 = px[i2]-pointer.x, ddy2 = py[i2]-pointer.y;
-        var d2b = ddx2*ddx2+ddy2*ddy2;
+      for (let i2=0;i2<N;i2++){
+        const ddx2 = px[i2]-pointer.x, ddy2 = py[i2]-pointer.y;
+        const d2b = ddx2*ddx2+ddy2*ddy2;
         if (d2b < STIR_RADIUS*STIR_RADIUS && d2b > 1){
-          var db = Math.sqrt(d2b);
-          var falloff = 1 - db/STIR_RADIUS;
-          var ux2 = ddx2/db, uy2 = ddy2/db;
+          const db = Math.sqrt(d2b);
+          const falloff = 1 - db/STIR_RADIUS;
+          const ux2 = ddx2/db, uy2 = ddy2/db;
           vx[i2] += (-uy2) * STIR_STRENGTH * falloff / groupMass[sp[i2]];
           vy[i2] += ( ux2) * STIR_STRENGTH * falloff / groupMass[sp[i2]];
         }
       }
     }
 
-    for (var k=0;k<N;k++){
+    for (let k=0;k<N;k++){
       vx[k] = (vx[k] + (fx[k]*FORCE_SCALE)/groupMass[sp[k]]) * mom;
       vy[k] = (vy[k] + (fy[k]*FORCE_SCALE)/groupMass[sp[k]]) * mom;
-      var nx2 = px[k]+vx[k], ny2 = py[k]+vy[k];
+      const nx2 = px[k]+vx[k], ny2 = py[k]+vy[k];
 
       if (nx2 < WALL_MARGIN){ vx[k] += (WALL_MARGIN-nx2)*WALL_FORCE*0.1; if (vx[k] < 0) vx[k] *= (1-WALL_DAMP); }
       if (nx2 > WORLD_W-WALL_MARGIN){ vx[k] -= (nx2-(WORLD_W-WALL_MARGIN))*WALL_FORCE*0.1; if (vx[k] > 0) vx[k] *= (1-WALL_DAMP); }
@@ -624,15 +640,15 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
     }
   }
 
-  var bgColor = '#EDF1EA';
+  let bgColor = '#EDF1EA';
   function readBg(){
     bgColor = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || bgColor;
   }
   function hexToRgb(hex){
-    var v = parseInt(hex.replace('#',''),16);
+    const v = parseInt(hex.replace('#',''),16);
     return [(v>>16)&255, (v>>8)&255, v&255];
   }
-  var bgRgb = hexToRgb('#edf1ea');
+  let bgRgb = hexToRgb('#edf1ea');
 
   function draw(){
     readBg();
@@ -640,13 +656,14 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
     // trail wash happens in plain viewport space so it always covers the
     // full canvas regardless of camera pan/zoom
     ctx.setTransform(dpr,0,0,dpr,0,0);
-    ctx.fillStyle = 'rgba(' + bgRgb[0]+','+bgRgb[1]+','+bgRgb[2] + ',0.16)';
+    ctx.fillStyle = 'rgba(' + bgRgb[0]+','+bgRgb[1]+','+bgRgb[2] + ',' + (1.0 - state.trailAlpha) + ')';
     ctx.fillRect(0,0,W,H);
 
     applyCameraTransform();
 
-    for (var i=0;i<N;i++){
-      var c = PALETTE[sp[i] % PALETTE.length].hex;
+    let c;
+    for (let i=0;i<N;i++){
+      c = PALETTE[sp[i] % PALETTE.length].hex;
       ctx.beginPath();
       ctx.fillStyle = c;
       ctx.arc(px[i], py[i], 1.6, 0, Math.PI*2);
@@ -662,19 +679,19 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
     }
   }
 
-  var genEl = document.getElementById('genStat');
-  var popEl = document.getElementById('popStat');
+  const genEl = document.getElementById('genStat');
+  const popEl = document.getElementById('popStat');
 
-  var stepAcc = 0;
+  let stepAcc = 0;
   window.__prof = { step: 0, draw: 0, frames: 0 };
-  window.__sim = { state: state, seedParticles: seedParticles };
+  window.__sim = { state, seedParticles };
   function loop(){
     if (!state.paused){
       // fixed-step physics decoupled from render rate: timeScale > 1 runs
       // multiple steps per frame, timeScale < 1 skips frames, so the same
       // dynamics can be examined slower or faster without changing them
       stepAcc += state.timeScale;
-      var t0 = performance.now();
+      const t0 = performance.now();
       while (stepAcc >= 1){
         step();
         state.generation++;
@@ -682,7 +699,7 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
       }
       window.__prof.step += performance.now() - t0;
     }
-    var t1 = performance.now();
+    const t1 = performance.now();
     draw();
     window.__prof.draw += performance.now() - t1;
     window.__prof.frames++;
@@ -698,33 +715,33 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
     container.style.gridTemplateColumns = '9px repeat(' + count + ', 16px)';
     container.className = 'grid';
 
-    var headRow = document.createElement('div');
+    const headRow = document.createElement('div');
     headRow.style.display = 'contents';
-    var blank = document.createElement('div');
+    const blank = document.createElement('div');
     headRow.appendChild(blank);
-    for (var c=0;c<count;c++){
-      var hd = document.createElement('div');
+    for (let c=0;c<count;c++){
+      const hd = document.createElement('div');
       hd.style.display='flex'; hd.style.justifyContent='center'; hd.style.alignItems='flex-end';
-      var dot = document.createElement('span'); dot.className='dot';
+      const dot = document.createElement('span'); dot.className='dot';
       dot.style.background = PALETTE[c].hex;
       hd.appendChild(dot);
       headRow.appendChild(hd);
     }
     container.appendChild(headRow);
 
-    for (var r=0;r<count;r++){
-      var rowWrap = document.createElement('div');
+    for (let r=0;r<count;r++){
+      const rowWrap = document.createElement('div');
       rowWrap.style.display = 'contents';
-      var rlabel = document.createElement('span'); rlabel.className='dot';
+      const rlabel = document.createElement('span'); rlabel.className='dot';
       rlabel.style.background = PALETTE[r].hex;
       rlabel.style.alignSelf = 'center';
       rowWrap.appendChild(rlabel);
-      for (var c2=0;c2<count;c2++){
-        var val = ruleArr[r*count+c2];
-        var cell = document.createElement('div');
+      for (let c2=0;c2<count;c2++){
+        const val = ruleArr[r*count+c2];
+        const cell = document.createElement('div');
         cell.className = 'cell';
-        var mag = Math.min(1, Math.abs(val));
-        var base = val >= 0 ? 'var(--attract)' : 'var(--repel)';
+        const mag = Math.min(1, Math.abs(val));
+        const base = val >= 0 ? 'var(--attract)' : 'var(--repel)';
         cell.style.background = 'color-mix(in srgb, ' + base + ' ' + Math.round(mag*85+8) + '%, var(--surface-2))';
         cell.title = bandName + ': ' + PALETTE[r].name + ' ← ' + PALETTE[c2].name + ': ' + (val>=0?'+':'') + val.toFixed(2);
         rowWrap.appendChild(cell);
@@ -734,37 +751,41 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
   }
 
   function renderMatrix(){
-    var count = state.groupCount;
+    const count = state.groupCount;
     renderRuleGrid(document.getElementById('matrixNear'), ruleNear, count, 'Near');
     renderRuleGrid(document.getElementById('matrixFar'), ruleFar, count, 'Far');
   }
 
   // --- controls wiring (Tweakpane) ---
-  var pane = new Pane({ title: 'Instrument', container: document.getElementById('controls') });
+  const pane = new Pane({ title: 'Instrument', container: document.getElementById('controls') });
 
   pane.addButton({ title: 'New colony' }).on('click', newColony);
   pane.addButton({ title: 'Scatter' }).on('click', scatter);
 
-  var btnPause = pane.addButton({ title: 'Pause' });
-  btnPause.on('click', function(){
+  const btnPause = pane.addButton({ title: 'Pause' });
+  btnPause.on('click', () => {
     state.paused = !state.paused;
     btnPause.title = state.paused ? 'Resume' : 'Pause';
   });
 
-  var regimeOptions = {};
-  RULE_MODE_KEYS.forEach(function(k){ regimeOptions[RULE_MODES[k].label] = k; });
+  const regimeOptions = {};
+  RULE_MODE_KEYS.forEach((k) => { regimeOptions[RULE_MODES[k].label] = k; });
   pane.addBinding(state, 'ruleMode', { label: 'Regime', options: regimeOptions }).on('change', newColony);
 
   pane.addBinding(state, 'groupCount', { label: 'Group', min: 2, max: 6, step: 1 }).on('change', newColony);
 
-  var dynFolder = pane.addFolder({ title: 'Dynamics', expanded: true });
+  // Render, not physics — how much the previous frame fades instead of
+  // being cleared. Low = long comet trails, high = crisp/no trail.
+  pane.addBinding(state, 'trailAlpha', { label: 'Trail', min: 0.02, max: 1, step: 0.01 });
+
+  const dynFolder = pane.addFolder({ title: 'Dynamics', expanded: true });
   dynFolder.addBinding(state, 'population', { label: 'Population', min: 200, max: 50000, step: 100 })
-    .on('change', function(){ seedParticles(state.population); });
+    .on('change', () => { seedParticles(state.population); });
   dynFolder.addBinding(state, 'momentum', { label: 'Momentum', min: 0.5, max: 0.99, step: 0.01 });
   dynFolder.addBinding(state, 'reach', { label: 'Reach', min: 15, max: 150, step: 5 })
     .on('change', buildGrid);
   dynFolder.addBinding(state, 'spaceSize', { label: 'Space', min: 600, max: 6000, step: 200 })
-    .on('change', function(){
+    .on('change', () => {
       WORLD_W = state.spaceSize;
       WORLD_H = state.spaceSize;
       buildGrid();
@@ -772,20 +793,20 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
     });
   dynFolder.addBinding(state, 'timeScale', { label: 'Speed', min: 0.1, max: 4, step: 0.1 });
 
-  var physioFolder = pane.addFolder({ title: 'Physiology', expanded: true });
+  const physioFolder = pane.addFolder({ title: 'Physiology', expanded: true });
   function refreshPhysiologyUI(){
-    physioFolder.children.slice().forEach(function(c){ c.dispose(); });
-    var massFolder = physioFolder.addFolder({ title: 'Mass', expanded: true });
-    var ratioFolder = physioFolder.addFolder({ title: 'Ratio', expanded: false });
-    for (var i=0;i<state.groupCount;i++){
-      (function(i){
-        var mProxy = { v: groupMass[i] };
-        massFolder.addBinding(mProxy, 'v', { label: PALETTE[i].name, min: MASS_MIN, max: MASS_MAX, step: 0.05 })
-          .on('change', function(ev){ groupMass[i] = ev.value; });
-        var rProxy = { v: groupWeight[i] };
-        ratioFolder.addBinding(rProxy, 'v', { label: PALETTE[i].name, min: WEIGHT_MIN, max: WEIGHT_MAX, step: 0.05 })
-          .on('change', function(ev){ groupWeight[i] = ev.value; seedParticles(state.population); });
-      })(i);
+    physioFolder.children.slice().forEach((c) => c.dispose());
+    const massFolder = physioFolder.addFolder({ title: 'Mass', expanded: true });
+    const ratioFolder = physioFolder.addFolder({ title: 'Ratio', expanded: false });
+    // `let i` gives each iteration's closures their own binding, so the
+    // old IIFE-per-iteration workaround this used under `var` is gone.
+    for (let i=0;i<state.groupCount;i++){
+      const mProxy = { v: groupMass[i] };
+      massFolder.addBinding(mProxy, 'v', { label: PALETTE[i].name, min: MASS_MIN, max: MASS_MAX, step: 0.05 })
+        .on('change', (ev) => { groupMass[i] = ev.value; });
+      const rProxy = { v: groupWeight[i] };
+      ratioFolder.addBinding(rProxy, 'v', { label: PALETTE[i].name, min: WEIGHT_MIN, max: WEIGHT_MAX, step: 0.05 })
+        .on('change', (ev) => { groupWeight[i] = ev.value; seedParticles(state.population); });
     }
   }
 
