@@ -240,8 +240,6 @@
 
 <script type="module">
 import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpane.min.js';
-(function(){
-  "use strict";
 
   const canvas = document.getElementById('pool');
   const ctx = canvas.getContext('2d');
@@ -660,7 +658,7 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
     // trail wash happens in plain viewport space so it always covers the
     // full canvas regardless of camera pan/zoom
     ctx.setTransform(dpr,0,0,dpr,0,0);
-    ctx.fillStyle = 'rgba(' + bgRgb[0]+','+bgRgb[1]+','+bgRgb[2] + ',' + (1.0 - state.trailAlpha) + ')';
+    ctx.fillStyle = `rgba(${bgRgb[0]},${bgRgb[1]},${bgRgb[2]},${1 - state.trailAlpha})`;
     ctx.fillRect(0,0,W,H);
 
     applyCameraTransform();
@@ -688,7 +686,7 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
 
   let stepAcc = 0;
   window.__prof = { step: 0, draw: 0, frames: 0 };
-  window.__sim = { state, seedParticles };
+  window.__sim = { state, seedParticles, newColony, buildGrid, fitCamera };
   function loop(){
     if (!state.paused){
       // fixed-step physics decoupled from render rate: timeScale > 1 runs
@@ -716,7 +714,7 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
 
   function renderRuleGrid(container, ruleArr, count, bandName){
     container.innerHTML = '';
-    container.style.gridTemplateColumns = '9px repeat(' + count + ', 16px)';
+    container.style.gridTemplateColumns = `9px repeat(${count}, 16px)`;
     container.className = 'grid';
 
     const headRow = document.createElement('div');
@@ -746,8 +744,8 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
         cell.className = 'cell';
         const mag = Math.min(1, Math.abs(val));
         const base = val >= 0 ? 'var(--attract)' : 'var(--repel)';
-        cell.style.background = 'color-mix(in srgb, ' + base + ' ' + Math.round(mag*85+8) + '%, var(--surface-2))';
-        cell.title = bandName + ': ' + PALETTE[r].name + ' ← ' + PALETTE[c2].name + ': ' + (val>=0?'+':'') + val.toFixed(2);
+        cell.style.background = `color-mix(in srgb, ${base} ${Math.round(mag*85+8)}%, var(--surface-2))`;
+        cell.title = `${bandName}: ${PALETTE[r].name} ← ${PALETTE[c2].name}: ${val>=0?'+':''}${val.toFixed(2)}`;
         rowWrap.appendChild(cell);
       }
       container.appendChild(rowWrap);
@@ -772,8 +770,7 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
     btnPause.title = state.paused ? 'Resume' : 'Pause';
   });
 
-  const regimeOptions = {};
-  RULE_MODE_KEYS.forEach((k) => { regimeOptions[RULE_MODES[k].label] = k; });
+  const regimeOptions = Object.fromEntries(RULE_MODE_KEYS.map((k) => [RULE_MODES[k].label, k]));
   pane.addBinding(state, 'ruleMode', { label: 'Regime', options: regimeOptions }).on('change', newColony);
 
   pane.addBinding(state, 'groupCount', { label: 'Group', min: 1, max: 6, step: 1 }).on('change', newColony);
@@ -843,7 +840,6 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
   newColony();
   window.addEventListener('resize', resize);
   requestAnimationFrame(loop);
-})();
 </script>
 </body>
 </html>
