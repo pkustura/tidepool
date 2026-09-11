@@ -772,7 +772,7 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
   RULE_MODE_KEYS.forEach((k) => { regimeOptions[RULE_MODES[k].label] = k; });
   pane.addBinding(state, 'ruleMode', { label: 'Regime', options: regimeOptions }).on('change', newColony);
 
-  pane.addBinding(state, 'groupCount', { label: 'Group', min: 2, max: 6, step: 1 }).on('change', newColony);
+  pane.addBinding(state, 'groupCount', { label: 'Group', min: 1, max: 6, step: 1 }).on('change', newColony);
 
   // Render, not physics — how much the previous frame fades instead of
   // being cleared. Low = long comet trails, high = crisp/no trail.
