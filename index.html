@@ -444,6 +444,12 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
   }
 
   // --- spatial grid ---
+  // Half-stencil: 4 of the 8 neighbor directions, chosen so every pair of
+  // adjacent cells is covered by exactly one of them (E/W, SE/NW, S/N,
+  // SW/NE are opposite pairs — this set picks exactly one from each). Lets
+  // step() visit each cell-pair once instead of visiting all 8 and
+  // discarding half the candidates via an index check.
+  const HALF_STENCIL = [[1,0],[1,1],[0,1],[-1,1]];
   let cellSize, cols, rows, buckets;
   function buildGrid(){
     cellSize = Math.max(20, state.reach);
@@ -544,7 +550,7 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
     // millions of times per step at high population.
     let i, here, spi, si, pxi, pyi, fxi, fyi;
     let ny, nx, neigh, j, ddx, ddy, d2, d, ux, uy, fij, fji;
-    let rep, t, tri, t2, tri2;
+    let rep, t, tri, t2, tri2, oi;
 
     clearGrid();
     for (i=0;i<N;i++){
@@ -566,40 +572,72 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
           si = spi*count;
           pxi = px[i]; pyi = py[i];
           fxi = 0; fyi = 0;
-          for (let dyc=-1; dyc<=1; dyc++){
-            ny = cy+dyc; if (ny<0||ny>=rows) continue;
-            for (let dxc=-1; dxc<=1; dxc++){
-              nx = cx+dxc; if (nx<0||nx>=cols) continue;
-              neigh = buckets[ny*cols+nx];
-              for (let b=0;b<neigh.length;b++){
-                j = neigh[b];
-                if (j<=i) continue;
-                ddx = px[j]-pxi;
-                ddy = py[j]-pyi;
-                d2 = ddx*ddx+ddy*ddy;
-                if (d2 > reach2 || d2 < 0.0001) continue;
-                d = Math.sqrt(d2);
-                ux = ddx/d; uy = ddy/d;
 
-                if (d < col){
-                  rep = (d/col - 1);
-                  fij = rep; fji = rep;
-                } else if (d < mid){
-                  t = (d - col) / (mid - col);
-                  tri = 1 - Math.abs(2*t - 1);
-                  fij = ruleNear[si+sp[j]] * tri;
-                  fji = ruleNear[sp[j]*count+spi] * tri;
-                } else {
-                  t2 = (d - mid) / (reach - mid);
-                  tri2 = 1 - Math.abs(2*t2 - 1);
-                  fij = ruleFar[si+sp[j]] * tri2;
-                  fji = ruleFar[sp[j]*count+spi] * tri2;
-                }
-                fxi += ux*fij; fyi += uy*fij;
-                fx[j] -= ux*fji; fy[j] -= uy*fji;
+          // Same-cell pairs: forward-only within the bucket array (b>a),
+          // so every unordered pair in this cell is visited exactly once —
+          // no index-based dedup check needed like the old `j<=i`.
+          for (let b=a+1; b<here.length; b++){
+            j = here[b];
+            ddx = px[j]-pxi;
+            ddy = py[j]-pyi;
+            d2 = ddx*ddx+ddy*ddy;
+            if (d2 > reach2 || d2 < 0.0001) continue;
+            d = Math.sqrt(d2);
+            ux = ddx/d; uy = ddy/d;
+
+            if (d < col){
+              rep = (d/col - 1);
+              fij = rep; fji = rep;
+            } else if (d < mid){
+              t = (d - col) / (mid - col);
+              tri = 1 - Math.abs(2*t - 1);
+              fij = ruleNear[si+sp[j]] * tri;
+              fji = ruleNear[sp[j]*count+spi] * tri;
+            } else {
+              t2 = (d - mid) / (reach - mid);
+              tri2 = 1 - Math.abs(2*t2 - 1);
+              fij = ruleFar[si+sp[j]] * tri2;
+              fji = ruleFar[sp[j]*count+spi] * tri2;
+            }
+            fxi += ux*fij; fyi += uy*fij;
+            fx[j] -= ux*fji; fy[j] -= uy*fji;
+          }
+
+          // Cross-cell pairs: only the 4 forward neighbor cells — each
+          // adjacent cell-pair is covered from exactly one side (see
+          // HALF_STENCIL above), so again no `j<=i` dedup is needed.
+          for (oi=0; oi<4; oi++){
+            ny = cy+HALF_STENCIL[oi][1]; if (ny<0||ny>=rows) continue;
+            nx = cx+HALF_STENCIL[oi][0]; if (nx<0||nx>=cols) continue;
+            neigh = buckets[ny*cols+nx];
+            for (let b=0;b<neigh.length;b++){
+              j = neigh[b];
+              ddx = px[j]-pxi;
+              ddy = py[j]-pyi;
+              d2 = ddx*ddx+ddy*ddy;
+              if (d2 > reach2 || d2 < 0.0001) continue;
+              d = Math.sqrt(d2);
+              ux = ddx/d; uy = ddy/d;
+
+              if (d < col){
+                rep = (d/col - 1);
+                fij = rep; fji = rep;
+              } else if (d < mid){
+                t = (d - col) / (mid - col);
+                tri = 1 - Math.abs(2*t - 1);
+                fij = ruleNear[si+sp[j]] * tri;
+                fji = ruleNear[sp[j]*count+spi] * tri;
+              } else {
+                t2 = (d - mid) / (reach - mid);
+                tri2 = 1 - Math.abs(2*t2 - 1);
+                fij = ruleFar[si+sp[j]] * tri2;
+                fji = ruleFar[sp[j]*count+spi] * tri2;
               }
+              fxi += ux*fij; fyi += uy*fij;
+              fx[j] -= ux*fji; fy[j] -= uy*fji;
             }
           }
+
           fx[i] += fxi; fy[i] += fyi;
         }
       }
