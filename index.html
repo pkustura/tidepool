@@ -310,6 +310,9 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
   }
 
   let px, py, vx, vy, sp, N;
+  // Force accumulators — reused across frames (zeroed, not reallocated)
+  // to avoid a fresh N-length allocation twice per step at high population.
+  let fx, fy;
   let ruleNear, ruleFar; // Float32Array groupCount*groupCount, each
 
   function rnd(a,b){ return a + Math.random()*(b-a); }
@@ -413,6 +416,7 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
     px = new Float32Array(n); py = new Float32Array(n);
     vx = new Float32Array(n); vy = new Float32Array(n);
     sp = new Uint8Array(n);
+    fx = new Float32Array(n); fy = new Float32Array(n);
     for (let i=0;i<n;i++){
       px[i] = rnd(WORLD_W*0.1, WORLD_W*0.9);
       py[i] = rnd(WORLD_H*0.1, WORLD_H*0.9);
@@ -549,8 +553,8 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
       buckets[cellIndex(px[i], py[i])].push(i);
     }
 
-    const fx = new Float32Array(N);
-    const fy = new Float32Array(N);
+    fx.fill(0);
+    fy.fill(0);
 
     for (let cy=0; cy<rows; cy++){
       for (let cx=0; cx<cols; cx++){
