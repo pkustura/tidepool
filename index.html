@@ -792,12 +792,28 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
       fitCamera();
     });
   dynFolder.addBinding(state, 'timeScale', { label: 'Speed', min: 0.1, max: 4, step: 0.1 });
+  dynFolder.addButton({ title: 'Randomize' }).on('click', () => {
+    state.momentum = +rnd(0.5, 0.99).toFixed(2);
+    state.reach = Math.round(rnd(15, 150) / 5) * 5;
+    state.spaceSize = Math.round(rnd(600, 6000) / 200) * 200;
+    state.timeScale = +rnd(0.1, 4).toFixed(1);
+    WORLD_W = state.spaceSize;
+    WORLD_H = state.spaceSize;
+    buildGrid();
+    fitCamera();
+    pane.refresh();
+  });
 
   const physioFolder = pane.addFolder({ title: 'Physiology', expanded: true });
+  // The Randomize button is disposed and re-added last on every refresh so
+  // it stays pinned to the bottom, below the rebuilt Mass/Ratio folders.
+  let massFolder, ratioFolder, btnPhysioRandom;
   function refreshPhysiologyUI(){
-    physioFolder.children.slice().forEach((c) => c.dispose());
-    const massFolder = physioFolder.addFolder({ title: 'Mass', expanded: true });
-    const ratioFolder = physioFolder.addFolder({ title: 'Ratio', expanded: false });
+    if (massFolder) massFolder.dispose();
+    if (ratioFolder) ratioFolder.dispose();
+    if (btnPhysioRandom) btnPhysioRandom.dispose();
+    massFolder = physioFolder.addFolder({ title: 'Mass', expanded: true });
+    ratioFolder = physioFolder.addFolder({ title: 'Ratio', expanded: false });
     // `let i` gives each iteration's closures their own binding, so the
     // old IIFE-per-iteration workaround this used under `var` is gone.
     for (let i=0;i<state.groupCount;i++){
@@ -808,6 +824,12 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
       ratioFolder.addBinding(rProxy, 'v', { label: PALETTE[i].name, min: WEIGHT_MIN, max: WEIGHT_MAX, step: 0.05 })
         .on('change', (ev) => { groupWeight[i] = ev.value; seedParticles(state.population); });
     }
+    btnPhysioRandom = physioFolder.addButton({ title: 'Randomize' }).on('click', () => {
+      initMass(state.groupCount);
+      initWeights(state.groupCount);
+      seedParticles(state.population);
+      refreshPhysiologyUI();
+    });
   }
 
   // --- init ---
