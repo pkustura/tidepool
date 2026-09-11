@@ -701,12 +701,20 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
 
     applyCameraTransform();
 
-    let c;
-    for (let i=0;i<N;i++){
-      c = PALETTE[sp[i] % PALETTE.length].hex;
+    // One path + one fill per color instead of per particle: fill() is the
+    // expensive call, and grouping by color (there are only PALETTE.length
+    // of them, independent of groupCount/sp[i]%len wraparound) turns N
+    // fills into a handful. moveTo before each arc breaks the subpath so
+    // canvas doesn't draw a connecting line between consecutive dots.
+    const R = 1.6;
+    for (let g=0; g<PALETTE.length; g++){
+      ctx.fillStyle = PALETTE[g].hex;
       ctx.beginPath();
-      ctx.fillStyle = c;
-      ctx.arc(px[i], py[i], 1.6, 0, Math.PI*2);
+      for (let i=0;i<N;i++){
+        if (sp[i] % PALETTE.length !== g) continue;
+        ctx.moveTo(px[i]+R, py[i]);
+        ctx.arc(px[i], py[i], R, 0, Math.PI*2);
+      }
       ctx.fill();
     }
 
