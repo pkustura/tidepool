@@ -311,6 +311,11 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
   // Force accumulators — reused across frames (zeroed, not reallocated)
   // to avoid a fresh N-length allocation twice per step at high population.
   let fx, fy;
+  // Ping-pong scratch for step()'s counting sort: every frame, particles
+  // are physically rebucketed into cell order for cache locality, scattered
+  // into these before px/py/vx/vy/sp swap references with them. cellOf
+  // holds each particle's cell index for the duration of that sort.
+  let pxB, pyB, vxB, vyB, spB, cellOf;
   let ruleNear, ruleFar; // Float32Array groupCount*groupCount, each
 
   function rnd(a,b){ return a + Math.random()*(b-a); }
@@ -415,6 +420,10 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
     vx = new Float32Array(n); vy = new Float32Array(n);
     sp = new Uint8Array(n);
     fx = new Float32Array(n); fy = new Float32Array(n);
+    pxB = new Float32Array(n); pyB = new Float32Array(n);
+    vxB = new Float32Array(n); vyB = new Float32Array(n);
+    spB = new Uint8Array(n);
+    cellOf = new Int32Array(n);
     for (let i=0;i<n;i++){
       px[i] = rnd(WORLD_W*0.1, WORLD_W*0.9);
       py[i] = rnd(WORLD_H*0.1, WORLD_H*0.9);
@@ -450,18 +459,19 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
   // step() visit each cell-pair once instead of visiting all 8 and
   // discarding half the candidates via an index check.
   const HALF_STENCIL = [[1,0],[1,1],[0,1],[-1,1]];
-  let cellSize, invCellSize, cols, rows, buckets;
+  // CSR-style grid: cellStart[c]..cellStart[c+1] is the range, in the
+  // current frame's cell-sorted particle arrays, belonging to cell c.
+  // Rebuilt fresh every step() call via counting sort (see step()); cursor
+  // is scratch used only during that sort's scatter pass.
+  let cellSize, invCellSize, cols, rows, cellStart, cursor;
   function buildGrid(){
     cellSize = Math.max(20, state.reach);
     invCellSize = 1/cellSize;
     cols = Math.max(1, Math.ceil(WORLD_W/cellSize));
     rows = Math.max(1, Math.ceil(WORLD_H/cellSize));
-    buckets = new Array(cols*rows);
-    for (let i=0;i<buckets.length;i++) buckets[i] = [];
-  }
-
-  function clearGrid(){
-    for (let i=0;i<buckets.length;i++) buckets[i].length = 0;
+    const numCells = cols*rows;
+    cellStart = new Int32Array(numCells+1);
+    cursor = new Int32Array(numCells);
   }
 
   function cellIndex(x,y){
@@ -562,36 +572,73 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
     // (never re-declared per iteration) — same reuse discipline `var`
     // gave us for free, kept explicit here since this loop runs
     // millions of times per step at high population.
-    let i, here, spi, si, pxi, pyi, fxi, fyi;
-    let ny, nx, neigh, j, ddx, ddy, d2, d, invD, fij, fji, sij, sji;
+    let i, spi, si, pxi, pyi, fxi, fyi;
+    let ny, nx, j, ddx, ddy, d2, d, invD, fij, fji, sij, sji;
     let rep, t, tri, t2, tri2, oi, neighCount;
-    const neighBuckets = new Array(4);
+    let start, end, neighStart, neighEnd, cellId, c, dest;
+    const neighRange = new Int32Array(8); // [start0,end0, start1,end1, ...]
+    const numCells = cols*rows;
 
-    clearGrid();
+    // Counting sort: find each particle's current cell, prefix-sum to get
+    // per-cell ranges, then physically scatter px/py/vx/vy/sp into cell
+    // order (via the pxB/pyB/vxB/vyB/spB scratch, swapped in after). This
+    // replaces the old array-of-JS-arrays buckets (built fresh via N
+    // `.push()` calls every frame) with one flat, contiguous layout, and
+    // lets the force loop below read same-cell and neighbor-cell particles
+    // as a straight typed-array scan instead of chasing per-cell arrays.
+    //
+    // Because the scatter is stable but the *input* order it's stable
+    // relative to is last frame's already-reordered layout (not each
+    // particle's original absolute index), the pairs below accumulate in
+    // a different sequence than the pre-CSR version from the second frame
+    // on. Floating-point addition isn't associative, so this changes
+    // exact trajectories — same category as the division changes earlier
+    // in this file, verified by running the sim, not by diffing output.
+    cellStart.fill(0);
     for (i=0;i<N;i++){
-      buckets[cellIndex(px[i], py[i])].push(i);
+      c = cellIndex(px[i], py[i]);
+      cellOf[i] = c;
+      cellStart[c+1]++;
     }
+    for (c=1;c<=numCells;c++) cellStart[c] += cellStart[c-1];
+    cursor.set(cellStart.subarray(0, numCells));
+    for (i=0;i<N;i++){
+      c = cellOf[i];
+      dest = cursor[c]++;
+      pxB[dest] = px[i]; pyB[dest] = py[i];
+      vxB[dest] = vx[i]; vyB[dest] = vy[i];
+      spB[dest] = sp[i];
+    }
+    let tmp;
+    tmp = px; px = pxB; pxB = tmp;
+    tmp = py; py = pyB; pyB = tmp;
+    tmp = vx; vx = vxB; vxB = tmp;
+    tmp = vy; vy = vyB; vyB = tmp;
+    tmp = sp; sp = spB; spB = tmp;
 
     fx.fill(0);
     fy.fill(0);
 
     for (let cy=0; cy<rows; cy++){
       for (let cx=0; cx<cols; cx++){
-        here = buckets[cy*cols+cx];
-        if (here.length === 0) continue;
+        cellId = cy*cols+cx;
+        start = cellStart[cellId]; end = cellStart[cellId+1];
+        if (start === end) continue;
 
-        // Neighbor buckets depend only on (cy,cx), not on which particle
-        // in this cell we're at — looked up once per cell instead of once
-        // per particle in it (previously here.length times).
+        // Neighbor ranges depend only on (cy,cx), not on which particle in
+        // this cell we're at — looked up once per cell instead of once
+        // per particle in it (previously end-start times).
         neighCount = 0;
         for (oi=0; oi<4; oi++){
           ny = cy+HALF_STENCIL[oi][1]; if (ny<0||ny>=rows) continue;
           nx = cx+HALF_STENCIL[oi][0]; if (nx<0||nx>=cols) continue;
-          neighBuckets[neighCount++] = buckets[ny*cols+nx];
+          const nId = ny*cols+nx;
+          neighRange[neighCount*2] = cellStart[nId];
+          neighRange[neighCount*2+1] = cellStart[nId+1];
+          neighCount++;
         }
 
-        for (let a=0; a<here.length; a++){
-          i = here[a];
+        for (i=start; i<end; i++){
           // avoids recomputing sp[i]*count and re-reading px[i]/py[i] on
           // every candidate pair, and accumulates i's side of the force
           // in locals instead of a typed-array read-modify-write per pair
@@ -600,11 +647,10 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
           pxi = px[i]; pyi = py[i];
           fxi = 0; fyi = 0;
 
-          // Same-cell pairs: forward-only within the bucket array (b>a),
-          // so every unordered pair in this cell is visited exactly once —
+          // Same-cell pairs: forward-only within [start,end) (j>i), so
+          // every unordered pair in this cell is visited exactly once —
           // no index-based dedup check needed like the old `j<=i`.
-          for (let b=a+1; b<here.length; b++){
-            j = here[b];
+          for (j=i+1; j<end; j++){
             ddx = px[j]-pxi;
             ddy = py[j]-pyi;
             d2 = ddx*ddx+ddy*ddy;
@@ -634,13 +680,12 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
             fx[j] -= ddx*sji; fy[j] -= ddy*sji;
           }
 
-          // Cross-cell pairs: only the neighbor buckets looked up above for
+          // Cross-cell pairs: only the neighbor ranges looked up above for
           // this cell — each adjacent cell-pair is covered from exactly
           // one side (see HALF_STENCIL above), so again no `j<=i` dedup.
           for (oi=0; oi<neighCount; oi++){
-            neigh = neighBuckets[oi];
-            for (let b=0;b<neigh.length;b++){
-              j = neigh[b];
+            neighStart = neighRange[oi*2]; neighEnd = neighRange[oi*2+1];
+            for (j=neighStart; j<neighEnd; j++){
               ddx = px[j]-pxi;
               ddy = py[j]-pyi;
               d2 = ddx*ddx+ddy*ddy;
