@@ -450,9 +450,10 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
   // step() visit each cell-pair once instead of visiting all 8 and
   // discarding half the candidates via an index check.
   const HALF_STENCIL = [[1,0],[1,1],[0,1],[-1,1]];
-  let cellSize, cols, rows, buckets;
+  let cellSize, invCellSize, cols, rows, buckets;
   function buildGrid(){
     cellSize = Math.max(20, state.reach);
+    invCellSize = 1/cellSize;
     cols = Math.max(1, Math.ceil(WORLD_W/cellSize));
     rows = Math.max(1, Math.ceil(WORLD_H/cellSize));
     buckets = new Array(cols*rows);
@@ -464,8 +465,8 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
   }
 
   function cellIndex(x,y){
-    const cx = Math.min(cols-1, Math.max(0, (x/cellSize)|0));
-    const cy = Math.min(rows-1, Math.max(0, (y/cellSize)|0));
+    const cx = Math.min(cols-1, Math.max(0, (x*invCellSize)|0));
+    const cy = Math.min(rows-1, Math.max(0, (y*invCellSize)|0));
     return cy*cols+cx;
   }
 
@@ -544,13 +545,27 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
     const mom = state.momentum;
     const count = state.groupCount;
 
+    // Precomputed inverses, constant for the whole step: lets the pair
+    // kernel below replace a division with a multiply for the collision
+    // ramp and both band interpolants.
+    const invCol = 1/col;
+    const invMidSpan = 1/(mid-col);
+    const invFarSpan = 1/(reach-mid);
+
+    // Group-indexed accel scalars (F/m), rebuilt every step — groupCount
+    // is at most 6, so this is cheap, and it can't go stale if a mass
+    // slider was dragged mid-frame the way a cached version could.
+    const accel = new Float32Array(count);
+    for (let g=0; g<count; g++) accel[g] = FORCE_SCALE/groupMass[g];
+
     // Hot-path locals declared once and reassigned across iterations
     // (never re-declared per iteration) — same reuse discipline `var`
     // gave us for free, kept explicit here since this loop runs
     // millions of times per step at high population.
     let i, here, spi, si, pxi, pyi, fxi, fyi;
-    let ny, nx, neigh, j, ddx, ddy, d2, d, ux, uy, fij, fji;
-    let rep, t, tri, t2, tri2, oi;
+    let ny, nx, neigh, j, ddx, ddy, d2, d, invD, fij, fji, sij, sji;
+    let rep, t, tri, t2, tri2, oi, neighCount;
+    const neighBuckets = new Array(4);
 
     clearGrid();
     for (i=0;i<N;i++){
@@ -563,6 +578,18 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
     for (let cy=0; cy<rows; cy++){
       for (let cx=0; cx<cols; cx++){
         here = buckets[cy*cols+cx];
+        if (here.length === 0) continue;
+
+        // Neighbor buckets depend only on (cy,cx), not on which particle
+        // in this cell we're at — looked up once per cell instead of once
+        // per particle in it (previously here.length times).
+        neighCount = 0;
+        for (oi=0; oi<4; oi++){
+          ny = cy+HALF_STENCIL[oi][1]; if (ny<0||ny>=rows) continue;
+          nx = cx+HALF_STENCIL[oi][0]; if (nx<0||nx>=cols) continue;
+          neighBuckets[neighCount++] = buckets[ny*cols+nx];
+        }
+
         for (let a=0; a<here.length; a++){
           i = here[a];
           // avoids recomputing sp[i]*count and re-reading px[i]/py[i] on
@@ -583,33 +610,35 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
             d2 = ddx*ddx+ddy*ddy;
             if (d2 > reach2 || d2 < 0.0001) continue;
             d = Math.sqrt(d2);
-            ux = ddx/d; uy = ddy/d;
+            invD = 1/d;
 
             if (d < col){
-              rep = (d/col - 1);
+              rep = d*invCol - 1;
               fij = rep; fji = rep;
             } else if (d < mid){
-              t = (d - col) / (mid - col);
+              t = (d - col) * invMidSpan;
               tri = 1 - Math.abs(2*t - 1);
               fij = ruleNear[si+sp[j]] * tri;
               fji = ruleNear[sp[j]*count+spi] * tri;
             } else {
-              t2 = (d - mid) / (reach - mid);
+              t2 = (d - mid) * invFarSpan;
               tri2 = 1 - Math.abs(2*t2 - 1);
               fij = ruleFar[si+sp[j]] * tri2;
               fji = ruleFar[sp[j]*count+spi] * tri2;
             }
-            fxi += ux*fij; fyi += uy*fij;
-            fx[j] -= ux*fji; fy[j] -= uy*fji;
+            // ddx*(f*invD) is the same unit vector scaling as (ddx/d)*f,
+            // just one division instead of two (ux and uy no longer
+            // computed separately).
+            sij = fij*invD; sji = fji*invD;
+            fxi += ddx*sij; fyi += ddy*sij;
+            fx[j] -= ddx*sji; fy[j] -= ddy*sji;
           }
 
-          // Cross-cell pairs: only the 4 forward neighbor cells — each
-          // adjacent cell-pair is covered from exactly one side (see
-          // HALF_STENCIL above), so again no `j<=i` dedup is needed.
-          for (oi=0; oi<4; oi++){
-            ny = cy+HALF_STENCIL[oi][1]; if (ny<0||ny>=rows) continue;
-            nx = cx+HALF_STENCIL[oi][0]; if (nx<0||nx>=cols) continue;
-            neigh = buckets[ny*cols+nx];
+          // Cross-cell pairs: only the neighbor buckets looked up above for
+          // this cell — each adjacent cell-pair is covered from exactly
+          // one side (see HALF_STENCIL above), so again no `j<=i` dedup.
+          for (oi=0; oi<neighCount; oi++){
+            neigh = neighBuckets[oi];
             for (let b=0;b<neigh.length;b++){
               j = neigh[b];
               ddx = px[j]-pxi;
@@ -617,24 +646,25 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
               d2 = ddx*ddx+ddy*ddy;
               if (d2 > reach2 || d2 < 0.0001) continue;
               d = Math.sqrt(d2);
-              ux = ddx/d; uy = ddy/d;
+              invD = 1/d;
 
               if (d < col){
-                rep = (d/col - 1);
+                rep = d*invCol - 1;
                 fij = rep; fji = rep;
               } else if (d < mid){
-                t = (d - col) / (mid - col);
+                t = (d - col) * invMidSpan;
                 tri = 1 - Math.abs(2*t - 1);
                 fij = ruleNear[si+sp[j]] * tri;
                 fji = ruleNear[sp[j]*count+spi] * tri;
               } else {
-                t2 = (d - mid) / (reach - mid);
+                t2 = (d - mid) * invFarSpan;
                 tri2 = 1 - Math.abs(2*t2 - 1);
                 fij = ruleFar[si+sp[j]] * tri2;
                 fji = ruleFar[sp[j]*count+spi] * tri2;
               }
-              fxi += ux*fij; fyi += uy*fij;
-              fx[j] -= ux*fji; fy[j] -= uy*fji;
+              sij = fij*invD; sji = fji*invD;
+              fxi += ddx*sij; fyi += ddy*sij;
+              fx[j] -= ddx*sji; fy[j] -= ddy*sji;
             }
           }
 
@@ -645,22 +675,26 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
 
     // pointer stir (tangential swirl)
     if (pointer.active){
+      const stirAccel = new Float32Array(count);
+      for (let g=0; g<count; g++) stirAccel[g] = STIR_STRENGTH/groupMass[g];
       for (let i2=0;i2<N;i2++){
         const ddx2 = px[i2]-pointer.x, ddy2 = py[i2]-pointer.y;
         const d2b = ddx2*ddx2+ddy2*ddy2;
         if (d2b < STIR_RADIUS*STIR_RADIUS && d2b > 1){
           const db = Math.sqrt(d2b);
           const falloff = 1 - db/STIR_RADIUS;
-          const ux2 = ddx2/db, uy2 = ddy2/db;
-          vx[i2] += (-uy2) * STIR_STRENGTH * falloff / groupMass[sp[i2]];
-          vy[i2] += ( ux2) * STIR_STRENGTH * falloff / groupMass[sp[i2]];
+          const invDb = 1/db;
+          const ux2 = ddx2*invDb, uy2 = ddy2*invDb;
+          const sAcc = stirAccel[sp[i2]] * falloff;
+          vx[i2] += (-uy2) * sAcc;
+          vy[i2] += ( ux2) * sAcc;
         }
       }
     }
 
     for (let k=0;k<N;k++){
-      vx[k] = (vx[k] + (fx[k]*FORCE_SCALE)/groupMass[sp[k]]) * mom;
-      vy[k] = (vy[k] + (fy[k]*FORCE_SCALE)/groupMass[sp[k]]) * mom;
+      vx[k] = (vx[k] + fx[k]*accel[sp[k]]) * mom;
+      vy[k] = (vy[k] + fy[k]*accel[sp[k]]) * mom;
       const nx2 = px[k]+vx[k], ny2 = py[k]+vy[k];
 
       if (nx2 < WALL_MARGIN){ vx[k] += (WALL_MARGIN-nx2)*WALL_FORCE*0.1; if (vx[k] < 0) vx[k] *= (1-WALL_DAMP); }
