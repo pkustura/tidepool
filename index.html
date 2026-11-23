@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Tidepool</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
@@ -198,9 +198,53 @@
   .legend span{ display:flex; align-items:center; gap: 5px; }
   .swatch{ width:9px; height:9px; border-radius:2px; }
 
+  /* Only shown on narrow screens, where the panel lives behind it. */
+  .controls-toggle{
+    display: none;
+    position: absolute;
+    right: calc(16px + env(safe-area-inset-right));
+    bottom: calc(16px + env(safe-area-inset-bottom));
+    min-height: 44px; min-width: 96px;
+    padding: 0 18px;
+    background: color-mix(in srgb, var(--surface) 92%, transparent);
+    backdrop-filter: blur(6px);
+    color: var(--accent);
+    border: 1px solid var(--line);
+    border-radius: 22px;
+    box-shadow: 0 6px 18px var(--shadow);
+    font: 500 12px 'IBM Plex Mono', monospace;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    cursor: pointer;
+  }
+
   @media (max-width: 620px){
-    .tag{ max-width: calc(100vw - 40px); }
-    .control-column{ top: auto; bottom: 20px; right: 20px; left: 20px; width:auto; }
+    .tag{
+      top: calc(12px + env(safe-area-inset-top));
+      left: calc(12px + env(safe-area-inset-left));
+      max-width: calc(100vw - 24px - env(safe-area-inset-left) - env(safe-area-inset-right));
+      padding: 9px 12px 10px;
+    }
+    .tag h1{ font-size: 20px; }
+    .tag p{ font-size: 11.5px; }
+    .tag .field{ margin-top: 6px; padding-top: 5px; font-size: 9.5px; }
+
+    .controls-toggle{ display: block; }
+
+    /* Bottom sheet: hidden until the toggle opens it, capped at a little
+       over half the screen and scrolling inside itself, so the colony
+       stays visible above it. */
+    .control-column{
+      display: none;
+      top: auto;
+      left: calc(12px + env(safe-area-inset-left));
+      right: calc(12px + env(safe-area-inset-right));
+      bottom: calc(72px + env(safe-area-inset-bottom));
+      width: auto;
+      max-height: 55vh;
+      max-height: 55dvh;
+    }
+    body.sheet-open .control-column{ display: flex; }
+
     .readout, .matrix{ display:none; }
   }
 </style>
@@ -216,7 +260,10 @@
     <div class="field">Specimen no. <span id="specimenNo">0001</span></div>
   </header>
 
-  <div class="control-column">
+  <button class="controls-toggle" id="controlsToggle" type="button"
+    aria-expanded="false" aria-controls="controlColumn">Controls</button>
+
+  <div class="control-column" id="controlColumn">
     <div id="controls" aria-label="Controls"></div>
 
     <aside class="matrix" aria-label="Group affinity matrices">
@@ -508,7 +555,78 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
   // at pointerdown so a drag doesn't switch modes mid-gesture.
   let dragMode = null; // 'pan' | 'stir'
   const dragLast = { x:0, y:0 };
+
+  // --- touch gestures ---
+  // Phones have no shift key, so touch gets its own mapping: one finger
+  // stirs, two fingers pan and pinch-zoom like a map. Mouse and pen keep
+  // the drag / shift-drag / wheel scheme. Once a gesture has used two
+  // fingers it stays a camera gesture until every finger lifts — otherwise
+  // lifting one finger mid-pinch would start a stir under the other.
+  const touches = new Map(); // pointerId -> {x, y} in canvas CSS px
+  let touchCamera = false;
+  let pinchLast = null;      // {mx, my, dist} as of the previous move
+
+  function canvasXY(e){
+    const r = canvas.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  }
+  function screenToWorld(sx, sy){
+    return { x: camera.cx + (sx - W/2)/camera.zoom, y: camera.cy + (sy - H/2)/camera.zoom };
+  }
+  function pinchState(){
+    const [a, b] = touches.values();
+    return { mx: (a.x+b.x)/2, my: (a.y+b.y)/2, dist: Math.hypot(a.x-b.x, a.y-b.y) };
+  }
+  function stirAt(s){
+    const w = screenToWorld(s.x, s.y);
+    pointer.active = true; pointer.x = w.x; pointer.y = w.y;
+  }
+
+  function touchDown(e){
+    const s = canvasXY(e);
+    touches.set(e.pointerId, s);
+    if (touches.size === 1 && !touchCamera){
+      stirAt(s);
+    } else if (touches.size >= 2){
+      touchCamera = true;
+      pointer.active = false;
+      pinchLast = pinchState();
+    }
+  }
+  function touchMove(e){
+    if (!touches.has(e.pointerId)) return;
+    const s = canvasXY(e);
+    touches.set(e.pointerId, s);
+    if (!touchCamera){ stirAt(s); return; }
+    if (touches.size < 2) return;
+    const now = pinchState();
+    // Pan by how far the midpoint moved, then zoom about the new midpoint,
+    // so the world point between the fingers stays between the fingers.
+    camera.cx -= (now.mx - pinchLast.mx)/camera.zoom;
+    camera.cy -= (now.my - pinchLast.my)/camera.zoom;
+    if (pinchLast.dist > 0 && now.dist > 0){
+      const w = screenToWorld(now.mx, now.my);
+      const newZoom = clamp(camera.zoom * now.dist/pinchLast.dist, MIN_ZOOM, MAX_ZOOM);
+      camera.cx = w.x - (now.mx - W/2)/newZoom;
+      camera.cy = w.y - (now.my - H/2)/newZoom;
+      camera.zoom = newZoom;
+    }
+    pinchLast = now;
+  }
+  function touchUp(e){
+    touches.delete(e.pointerId);
+    if (touches.size === 0){
+      touchCamera = false;
+      pointer.active = false;
+      pinchLast = null;
+    } else if (touchCamera && touches.size >= 2){
+      // The finger pair changed; rebase so the camera doesn't jump.
+      pinchLast = pinchState();
+    }
+  }
+
   canvas.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'touch'){ touchDown(e); return; }
     const r = canvas.getBoundingClientRect();
     dragLast.x = e.clientX - r.left;
     dragLast.y = e.clientY - r.top;
@@ -523,6 +641,7 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
     }
   });
   window.addEventListener('pointermove', (e) => {
+    if (e.pointerType === 'touch'){ touchMove(e); return; }
     if (!dragMode) return;
     const r = canvas.getBoundingClientRect();
     const sx = e.clientX - r.left, sy = e.clientY - r.top;
@@ -534,11 +653,16 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
     }
     dragLast.x = sx; dragLast.y = sy;
   });
-  window.addEventListener('pointerup', () => {
+  // pointercancel shares the release path: phones cancel touches during
+  // system gestures, and without it a drag would be left stuck on.
+  function pointerEnd(e){
+    if (e.pointerType === 'touch'){ touchUp(e); return; }
     pointer.active = false;
     dragMode = null;
     canvas.style.cursor = 'grab';
-  });
+  }
+  window.addEventListener('pointerup', pointerEnd);
+  window.addEventListener('pointercancel', pointerEnd);
   canvas.addEventListener('contextmenu', (e) => { e.preventDefault(); });
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Shift' && !dragMode) canvas.style.cursor = 'crosshair';
@@ -811,7 +935,7 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
 
   let stepAcc = 0;
   window.__prof = { step: 0, draw: 0, frames: 0 };
-  window.__sim = { state, seedParticles, newColony, buildGrid, fitCamera };
+  window.__sim = { state, seedParticles, newColony, buildGrid, fitCamera, camera, pointer };
   function loop(){
     if (!state.paused){
       // fixed-step physics decoupled from render rate: timeScale > 1 runs
@@ -886,6 +1010,17 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
   // --- controls wiring (Tweakpane) ---
   const pane = new Pane({ title: 'Instrument', container: document.getElementById('controls') });
 
+  // On phones the panel is a bottom sheet behind a toggle, and the big
+  // folders start collapsed so the sheet opens short. Same breakpoint as
+  // the CSS media query.
+  const isNarrow = window.matchMedia('(max-width: 620px)').matches;
+  const sheetBtn = document.getElementById('controlsToggle');
+  sheetBtn.addEventListener('click', () => {
+    const open = document.body.classList.toggle('sheet-open');
+    sheetBtn.setAttribute('aria-expanded', String(open));
+    sheetBtn.textContent = open ? 'Close' : 'Controls';
+  });
+
   pane.addButton({ title: 'New colony' }).on('click', newColony);
   pane.addButton({ title: 'Scatter' }).on('click', scatter);
 
@@ -904,7 +1039,7 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
   // being cleared. Low = long comet trails, high = crisp/no trail.
   pane.addBinding(state, 'trailAlpha', { label: 'Trail', min: 0.02, max: 1, step: 0.01 });
 
-  const dynFolder = pane.addFolder({ title: 'Dynamics', expanded: true });
+  const dynFolder = pane.addFolder({ title: 'Dynamics', expanded: !isNarrow });
   dynFolder.addBinding(state, 'population', { label: 'Population', min: 200, max: 50000, step: 100 })
     .on('change', () => { seedParticles(state.population); });
   dynFolder.addBinding(state, 'momentum', { label: 'Momentum', min: 0.5, max: 0.99, step: 0.01 });
@@ -930,7 +1065,7 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
     pane.refresh();
   });
 
-  const physioFolder = pane.addFolder({ title: 'Physiology', expanded: true });
+  const physioFolder = pane.addFolder({ title: 'Physiology', expanded: !isNarrow });
   // The Randomize button is disposed and re-added last on every refresh so
   // it stays pinned to the bottom, below the rebuilt Mass/Ratio folders.
   let massFolder, ratioFolder, btnPhysioRandom;
