@@ -300,7 +300,13 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
     canvas.height = Math.round(H * dpr);
     ctx.setTransform(dpr,0,0,dpr,0,0);
   }
-  window.addEventListener('resize', resize);
+  // Watch the canvas box itself rather than the window. Mobile Chrome can
+  // lay the page out at a transitional size (e.g. opening from another
+  // app) and never fire a window resize once it settles, leaving the pixel
+  // buffer a different shape from its box and stretching every particle.
+  // The observer fires whenever the box's real size changes, window
+  // resizes included.
+  new ResizeObserver(resize).observe(canvas);
 
   const PALETTE = [
     { name:'cyan',    hex:'#4FD9E8' },
@@ -1098,7 +1104,6 @@ import { Pane } from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpan
   buildGrid();
   fitCamera();
   newColony();
-  window.addEventListener('resize', resize);
   requestAnimationFrame(loop);
 </script>
 </body>
